@@ -1,0 +1,200 @@
+import Dexie, { type EntityTable } from 'dexie';
+
+export interface GenDefaults {
+  width: number;
+  height: number;
+  steps: number;
+  cfg: number;
+  sampler: string;
+  negative: string;
+  count: number;
+  denoise: number;
+  /** let the chat model look at each generated image and regenerate mismatches */
+  verify?: boolean;
+  /** max regeneration rounds per request when the check fails (cost guard) */
+  maxRetries?: number;
+}
+
+export const verifyEnabled = (d: GenDefaults) => d.verify ?? true;
+export const maxRetries = (d: GenDefaults) => Math.max(0, Math.min(5, d.maxRetries ?? 2));
+
+export interface Character {
+  id: string;
+  name: string;
+  prompt: string;
+  imageId?: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  llmConnId?: string;
+  llmModel?: string;
+  /** "Generate" slot (txt2img; also edits/upscales when their slots are empty) */
+  imageConnId?: string;
+  imageModel?: string;
+  /** "Edit" slot: img2img, inpaint, variations. Empty = use the generate slot. */
+  editConnId?: string;
+  editModel?: string;
+  /** "Upscale" slot. Empty = the generate backend's built-in upscaler (A1111/ComfyUI). */
+  upscaleConnId?: string;
+  upscaleModel?: string;
+  defaults: GenDefaults;
+  characters: Character[];
+  coverImageId?: string;
+  notes?: string;
+}
+
+export type Part = { type: 'text'; text: string } | { type: 'image'; imageId: string };
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: Record<string, any>;
+}
+
+export interface ToolResult {
+  callId: string;
+  name: string;
+  content: string;
+  imageIds?: string[];
+  isError?: boolean;
+}
+
+export interface Message {
+  id: string;
+  projectId: string;
+  role: 'user' | 'assistant' | 'tool';
+  parts: Part[];
+  toolCalls?: ToolCall[];
+  toolResults?: ToolResult[];
+  error?: string;
+  createdAt: number;
+}
+
+export type ImageOp = 'txt2img' | 'img2img' | 'inpaint' | 'upscale' | 'upload';
+
+export interface ImageRecord {
+  id: string;
+  projectId: string;
+  blob: Blob;
+  thumb: Blob;
+  width: number;
+  height: number;
+  op: ImageOp;
+  prompt?: string;
+  negative?: string;
+  seed?: number;
+  backend?: string;
+  model?: string;
+  params?: Record<string, any>;
+  parentId?: string;
+  favorite?: 0 | 1;
+  createdAt: number;
+}
+
+/** Wire protocol used for chat. */
+export type ChatApi = 'openai' | 'anthropic' | 'demo';
+/** Wire protocol used for images. */
+export type ImageApi = 'openai-images' | 'chat-image' | 'gemini' | 'a1111' | 'sdnext' | 'comfyui' | 'demo';
+
+/** A provider account / server. One provider can serve chat, images, or both with the same key. */
+export interface Connection {
+  id: string;
+  name: string;
+  /** preset id this was created from (openai, openrouter, ollama, …) */
+  preset: string;
+  /** base URL for chat (and for images unless imageBaseUrl is set) */
+  baseUrl: string;
+  apiKey?: string;
+  /** separate key for image requests (e.g. ArliAI); empty = use apiKey */
+  imageApiKey?: string;
+  chatApi?: ChatApi;
+  imageApi?: ImageApi;
+  imageBaseUrl?: string;
+  /** route requests through the app's local / Vercel proxy (CORS workaround) */
+  useProxy?: boolean;
+  /** models added by hand (shown in addition to the fetched list) */
+  chatModels?: string[];
+  imageModels?: string[];
+  /** backend-specific options (comfy workflows, upscaler, edit style, …) */
+  extra?: Record<string, any>;
+  createdAt: number;
+}
+
+export type ImageSlot = 'generate' | 'edit' | 'upscale';
+
+export const SLOT_FIELDS: Record<ImageSlot, { conn: 'imageConnId' | 'editConnId' | 'upscaleConnId'; model: 'imageModel' | 'editModel' | 'upscaleModel' }> = {
+  generate: { conn: 'imageConnId', model: 'imageModel' },
+  edit: { conn: 'editConnId', model: 'editModel' },
+  upscale: { conn: 'upscaleConnId', model: 'upscaleModel' },
+};
+
+export interface ModelRef {
+  connId: string;
+  model: string;
+}
+export const refKey = (r: ModelRef) => `${r.connId}::${r.model}`;
+export const parseRef = (k: string): ModelRef => {
+  const i = k.indexOf('::');
+  return { connId: k.slice(0, i), model: k.slice(i + 2) };
+};
+
+export interface Setting {
+  key: string;
+  value: any;
+}
+
+export const db = new Dexie('ai-image-studio') as Dexie & {
+  projects: EntityTable<Project, 'id'>;
+  messages: EntityTable<Message, 'id'>;
+  images: EntityTable<ImageRecord, 'id'>;
+  connections: EntityTable<Connection, 'id'>;
+  settings: EntityTable<Setting, 'key'>;
+};
+
+db.version(1).stores({
+  projects: 'id, updatedAt',
+  messages: 'id, projectId, [projectId+createdAt]',
+  images: 'id, projectId, [projectId+createdAt], parentId',
+  connections: 'id, kind',
+  settings: 'key',
+});
+
+// v2: connections became multi-capability providers
+db.version(2)
+  .stores({ connections: 'id' })
+  .upgrade(async (tx) => {
+    await tx
+      .table('connections')
+      .toCollection()
+      .modify((c: any) => {
+        const t = c.type as string;
+        c.preset = t === 'openai-images' ? 'openai' : t === 'openai-compatible' ? 'custom' : t;
+        if (c.kind === 'llm') {
+          c.chatApi = t === 'anthropic' ? 'anthropic' : t === 'demo' ? 'demo' : 'openai';
+          if (c.defaultModel) c.chatModels = [c.defaultModel];
+        } else {
+          c.imageApi = t;
+          if (c.defaultModel) c.imageModels = [c.defaultModel];
+        }
+        delete c.kind;
+        delete c.type;
+        delete c.defaultModel;
+      });
+  });
+
+export const DEFAULT_GEN: GenDefaults = {
+  width: 1024,
+  height: 1024,
+  steps: 25,
+  cfg: 6,
+  sampler: '',
+  negative: '',
+  count: 1,
+  denoise: 0.55,
+  verify: true,
+  maxRetries: 2,
+};
