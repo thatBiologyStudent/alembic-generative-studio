@@ -8,12 +8,13 @@ import { SettingsPage } from './features/settings/SettingsPage';
 import { Toasts } from './components/Toasts';
 import { OutputFolderBanner } from './components/OutputFolderBanner';
 import { ensureDemoConnections } from './features/settings/bootstrap';
+import { BASE } from './lib/base';
 
 void ensureDemoConnections();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={BASE.replace(/\/+$/, '') || undefined}>
       <Routes>
         <Route path="/" element={<ProjectList />} />
         <Route path="/p/:id" element={<Workspace />} />

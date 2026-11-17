@@ -1,3 +1,5 @@
+import { PROXY_PATH } from './base';
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -15,13 +17,13 @@ export function trimUrl(u: string) {
 /** Rewrites a provider URL to go through the app's own proxy (/api/proxy) when the provider has useProxy on. */
 export function via(conn: { useProxy?: boolean }, url: string): string {
   if (!conn.useProxy) return url;
-  return `${location.origin}/api/proxy?url=${encodeURIComponent(url)}`;
+  return `${location.origin}${PROXY_PATH}?url=${encodeURIComponent(url)}`;
 }
 
 let proxyAvailable: Promise<boolean> | undefined;
 /** True when this page is served by the bundled server (start.bat / npm run dev) or a Vercel deployment with api/proxy. */
 export function checkProxy(): Promise<boolean> {
-  proxyAvailable ??= fetch('/api/proxy?health=1')
+  proxyAvailable ??= fetch(`${PROXY_PATH}?health=1`)
     .then(async (r) => r.ok && (await r.text()) === 'ok')
     .catch(() => false);
   return proxyAvailable;
@@ -37,7 +39,7 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
     let origin = url;
     try {
       const u = new URL(url);
-      origin = u.pathname === '/api/proxy' ? `${new URL(u.searchParams.get('url') ?? '').origin} (via proxy)` : u.origin;
+      origin = u.pathname === PROXY_PATH ?`${new URL(u.searchParams.get('url') ?? '').origin} (via proxy)` : u.origin;
     } catch {
       /* keep */
     }
