@@ -9,6 +9,8 @@ import { forgetModelLists } from '../../providers/models';
 import { checkProxy } from '../../lib/http';
 import { ConnectionDialog } from './ConnectionDialog';
 import { BackupSection, OutputSection } from './OutputAndBackup';
+import { BASE } from '../../lib/base';
+import { BackLink } from '../../components/BackLink';
 
 export function SettingsPage() {
   const conns = useLiveQuery(() => db.connections.toCollection().sortBy('createdAt'), []);
@@ -30,6 +32,8 @@ export function SettingsPage() {
           <ArrowLeft size={16} />
         </Link>
         <h1 className="font-semibold">Providers & settings</h1>
+        <div className="flex-1" />
+        <BackLink compact />
       </header>
       <main className="mx-auto max-w-3xl space-y-5 p-6">
         <div className="rounded-xl border border-violet-900/60 bg-violet-950/30 p-4 text-sm text-violet-100">
@@ -98,7 +102,7 @@ export function SettingsPage() {
             onClick={async () => {
               if (!confirm('Delete ALL projects, images, chats and providers from this browser? This cannot be undone.')) return;
               await db.delete();
-              location.href = '/';
+              location.href = BASE;
             }}
           >
             <Trash2 size={15} /> Delete all local data

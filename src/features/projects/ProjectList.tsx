@@ -9,6 +9,8 @@ import { Modal, useBlobUrl } from '../../components/common';
 import { downloadBlob } from '../../lib/image';
 import { errMsg } from '../../lib/http';
 import { useUI } from '../../store/ui';
+import { asset } from '../../lib/base';
+import { BackLink } from '../../components/BackLink';
 
 export function ProjectList() {
   const projects = useLiveQuery(() => db.projects.orderBy('updatedAt').reverse().toArray(), []);
@@ -38,7 +40,8 @@ export function ProjectList() {
     <div className="min-h-full">
       <header className="flex items-center justify-between border-b border-line px-6 py-4">
         <div className="flex items-center gap-2.5">
-          <img src="/logo.webp" alt="" className="h-10 w-10" />
+          <BackLink compact />
+          <img src={asset('logo.webp')} alt="" className="h-10 w-10" />
           <div>
             <h1 className="text-base leading-tight whitespace-nowrap">
               <span className="font-semibold">Alembic</span> <span className="font-normal text-muted">Generative Studio</span>
@@ -63,7 +66,7 @@ export function ProjectList() {
       <main className="mx-auto max-w-7xl p-6">
         {projects && projects.length === 0 && (
           <div className="mx-auto mt-20 max-w-md text-center">
-            <img src="/logo.webp" alt="" className="mx-auto mb-4 h-24 w-24" />
+            <img src={asset('logo.webp')} alt="" className="mx-auto mb-4 h-24 w-24" />
             <h2 className="mb-1 text-lg font-semibold">No projects yet</h2>
             <p className="mb-5 text-sm text-muted">
               A project holds a chat, its images and generation settings. Offline demo connections are set up so you can try it right away;

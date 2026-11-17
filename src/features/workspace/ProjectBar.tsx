@@ -7,6 +7,8 @@ import { downloadBlob } from '../../lib/image';
 import { errMsg } from '../../lib/http';
 import { useUI } from '../../store/ui';
 import { GenSettings } from './GenSettings';
+import { asset } from '../../lib/base';
+import { BackLink } from '../../components/BackLink';
 
 export function ProjectBar({ project }: { project: Project }) {
   const [showGen, setShowGen] = useState(false);
@@ -18,7 +20,7 @@ export function ProjectBar({ project }: { project: Project }) {
     <header className="relative flex h-12 shrink-0 items-center gap-2 border-b border-line bg-panel px-3">
       <Link to="/" className="btn-ghost gap-1 pl-1" title="All projects">
         <ArrowLeft size={16} />
-        <img src="/logo.webp" alt="" className="h-7 w-7" />
+        <img src={asset('logo.webp')} alt="" className="h-7 w-7" />
       </Link>
       <input
         className="w-64 rounded bg-transparent px-1 py-0.5 text-sm font-semibold outline-none focus:bg-bg"
@@ -28,6 +30,7 @@ export function ProjectBar({ project }: { project: Project }) {
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
       />
       <div className="flex-1" />
+      <BackLink compact />
       <button className={`btn ${showGen ? 'border-accent' : ''}`} onClick={() => setShowGen((s) => !s)} title="Generation settings">
         <SlidersHorizontal size={14} /> {project.defaults.width}×{project.defaults.height}
       </button>
