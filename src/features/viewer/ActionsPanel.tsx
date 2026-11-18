@@ -70,8 +70,8 @@ export function ActionsPanel(props: Props) {
   const [height, setHeight] = useState(250);
 
   return (
-    <div className="flex shrink-0 border-t border-line bg-panel" style={{ height }}>
-      <nav className="flex w-44 shrink-0 flex-col gap-0.5 border-r border-line p-1.5">
+    <div className="flex shrink-0 flex-col border-t border-line bg-panel sm:flex-row" style={{ height }}>
+      <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-line p-1.5 sm:w-44 sm:flex-col sm:overflow-x-visible sm:border-r sm:border-b-0">
         {TABS.map((t) => {
           // Edit / img2img / Upscale stay clickable: each tab has its own model picker
           const disabled = false;
@@ -81,7 +81,7 @@ export function ActionsPanel(props: Props) {
               disabled={!!disabled}
               onClick={() => setTab(t.id)}
               title={disabled ? 'Not supported by the current image backend' : undefined}
-              className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition disabled:opacity-30 ${
+              className={`flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs whitespace-nowrap transition disabled:opacity-30 ${
                 tab === t.id ? 'bg-accent/20 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
               }`}
             >
@@ -89,9 +89,9 @@ export function ActionsPanel(props: Props) {
             </button>
           );
         })}
-        <div className="flex-1" />
+        <div className="hidden flex-1 sm:block" />
         <button
-          className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-zinc-600 hover:text-zinc-300"
+          className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-[10px] whitespace-nowrap text-zinc-600 hover:text-zinc-300"
           onClick={() => setHeight((h) => (h > 300 ? 250 : 380))}
         >
           {height > 300 ? 'Smaller panel' : 'Larger panel'}

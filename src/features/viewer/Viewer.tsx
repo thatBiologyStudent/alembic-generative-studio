@@ -74,21 +74,21 @@ export function Viewer({ project, imageId }: { project: Project; imageId: string
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
+      <div className="flex items-center gap-0.5 border-b border-line px-1 py-1.5 sm:gap-1 sm:px-2">
         <button className="btn-ghost" onClick={close} title="Back to grid (Esc)">
-          <LayoutGrid size={15} /> <span className="text-xs">Grid</span>
+          <LayoutGrid size={15} /> <span className="hidden text-xs sm:inline">Grid</span>
         </button>
-        <div className="mx-2 h-4 w-px bg-line" />
+        <div className="mx-2 hidden h-4 w-px bg-line sm:block" />
         <button className="btn-ghost" onClick={() => go(-1)} title="Previous (←)">
           <ChevronLeft size={16} />
         </button>
-        <span className="w-16 text-center text-xs text-muted tabular-nums">
+        <span className="w-12 text-center text-xs text-muted tabular-nums sm:w-16">
           {idx + 1} / {ids?.length ?? 0}
         </span>
         <button className="btn-ghost" onClick={() => go(1)} title="Next (→)">
           <ChevronRight size={16} />
         </button>
-        <span className="ml-2 truncate text-xs text-muted">
+        <span className="ml-2 hidden truncate text-xs text-muted sm:inline">
           {img.width}×{img.height} · {img.op}
           {img.seed !== undefined ? ` · seed ${img.seed}` : ''}
         </span>

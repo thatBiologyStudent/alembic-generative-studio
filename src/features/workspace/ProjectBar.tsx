@@ -17,22 +17,25 @@ export function ProjectBar({ project }: { project: Project }) {
   useEffect(() => setName(project.name), [project.name]);
 
   return (
-    <header className="relative flex h-12 shrink-0 items-center gap-2 border-b border-line bg-panel px-3">
+    <header className="relative flex h-12 shrink-0 items-center gap-1 sm:gap-2 border-b border-line bg-panel px-3">
       <Link to="/" className="btn-ghost gap-1 pl-1" title="All projects">
         <ArrowLeft size={16} />
         <img src={asset('logo.webp')} alt="" className="h-7 w-7" />
       </Link>
       <input
-        className="w-64 rounded bg-transparent px-1 py-0.5 text-sm font-semibold outline-none focus:bg-bg"
+        className="min-w-0 flex-1 rounded bg-transparent sm:w-64 sm:flex-none px-1 py-0.5 text-sm font-semibold outline-none focus:bg-bg"
         value={name}
         onChange={(e) => setName(e.target.value)}
         onBlur={() => name.trim() && name !== project.name && updateProject(project.id, { name: name.trim() })}
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
       />
-      <div className="flex-1" />
+      <div className="hidden flex-1 sm:block" />
       <BackLink compact />
       <button className={`btn ${showGen ? 'border-accent' : ''}`} onClick={() => setShowGen((s) => !s)} title="Generation settings">
-        <SlidersHorizontal size={14} /> {project.defaults.width}×{project.defaults.height}
+        <SlidersHorizontal size={14} />
+        <span className="hidden sm:inline">
+          {project.defaults.width}×{project.defaults.height}
+        </span>
       </button>
       <button
         className="btn-ghost"
