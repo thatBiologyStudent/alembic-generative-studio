@@ -8,6 +8,7 @@ import { fetchModelList, forgetModelLists, type ModelKind } from '../../provider
 import { Field, Modal, Spinner } from '../../components/common';
 import { checkProxy } from '../../lib/http';
 import { uid } from '../../lib/id';
+import { FlowSidecarStatus } from './FlowSidecarStatus';
 
 function fromPreset(p: Preset, proxyOk: boolean): Connection {
   const pageIsLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -45,6 +46,9 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
   const preset = presetById(c.preset);
   const set = (p: Partial<Connection>) => setC((x) => ({ ...x!, ...p }));
   const setExtra = (p: Record<string, any>) => setC((x) => ({ ...x!, extra: { ...x!.extra, ...p } }));
+  // providers without a URL or key (Demo, Google Flow via the browser extension)
+  const noNet = c.preset === 'demo' || c.preset === 'flow-sidecar' || c.imageApi === 'flow-sidecar';
+  const isFlow = c.imageApi === 'flow-sidecar';
   const current = (): Connection => ({ ...c, chatModels: lines(chatText), imageModels: lines(imageText) });
 
   const runTest = async () => {
@@ -81,19 +85,28 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
             <ArrowLeft size={13} /> Choose a different preset
           </button>
         )}
-        {preset.note && <p className="rounded-lg bg-panel2 px-3 py-2 text-xs leading-relaxed text-muted">{preset.note}</p>}
+        {(preset.note || preset.link) && (
+          <p className="rounded-lg bg-panel2 px-3 py-2 text-xs leading-relaxed text-muted">
+            {preset.note}
+            {preset.link && (
+              <a className="mt-1 flex items-center gap-1 text-accent2 hover:underline" href={preset.link.url} target="_blank" rel="noreferrer">
+                {preset.link.label} <ExternalLink size={10} />
+              </a>
+            )}
+          </p>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name">
             <input className="input" value={c.name} onChange={(e) => set({ name: e.target.value })} required />
           </Field>
-          {c.preset !== 'demo' && (
+          {!noNet && (
             <Field label="Base URL">
               <input className="input" value={c.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} placeholder={preset.baseUrl} />
             </Field>
           )}
         </div>
-        {c.preset !== 'demo' && (
+        {!noNet && (
           <Field
             label={preset.separateImageKey && c.chatApi ? 'Chat / text API key' : preset.keyRequired ? 'API key' : 'API key (optional)'}
             hint={
@@ -147,12 +160,12 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
                     </option>
                   ))}
                 </select>
-                {c.imageApi !== 'demo' && (
+                {c.imageApi !== 'demo' && !isFlow && (
                   <Field label="Image base URL (if different)">
                     <input className="input mb-2" value={c.imageBaseUrl ?? ''} placeholder={c.baseUrl} onChange={(e) => set({ imageBaseUrl: e.target.value || undefined })} />
                   </Field>
                 )}
-                {c.preset !== 'demo' && (c.chatApi || preset.separateImageKey) && (
+                {!noNet && (c.chatApi || preset.separateImageKey) && (
                   <Field
                     label={preset.separateImageKey ? 'Image API key' : 'Image API key (only if different)'}
                     hint={preset.separateImageKey ? 'This provider issues a separate key for image generation.' : 'Leave empty to use the key above.'}
@@ -174,7 +187,9 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
           </div>
         </div>
 
-        {c.preset !== 'demo' && (
+        {isFlow && <FlowSidecarStatus onModels={(m) => setImageText((t) => (t.trim() ? t : m.join('\n')))} />}
+
+        {!noNet && (
           <label className={`flex items-start gap-2 rounded-lg border border-line p-3 text-sm ${proxyOk ? '' : 'opacity-60'}`}>
             <input type="checkbox" className="mt-0.5" checked={!!c.useProxy} disabled={!proxyOk && !c.useProxy} onChange={(e) => set({ useProxy: e.target.checked })} />
             <span>

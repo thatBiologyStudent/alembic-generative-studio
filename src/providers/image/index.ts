@@ -3,6 +3,7 @@ import { A1111Backend, SDNextBackend } from './a1111';
 import { ChatImageBackend } from './chatImage';
 import { ComfyBackend } from './comfy';
 import { DemoBackend } from './demo';
+import { FlowSidecarBackend } from './flowSidecar';
 import { GeminiImageBackend } from './gemini';
 import { OpenAIImagesBackend } from './openaiImages';
 import type { ImageBackend } from './types';
@@ -25,6 +26,8 @@ export function getImageBackend(c: Connection): ImageBackend {
       return new ComfyBackend(conn);
     case 'demo':
       return new DemoBackend();
+    case 'flow-sidecar':
+      return new FlowSidecarBackend(conn);
     default:
       throw new Error(`${conn.name} is not set up for images`);
   }

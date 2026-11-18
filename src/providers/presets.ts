@@ -15,6 +15,8 @@ export interface Preset {
   /** true when the provider is known to accept direct browser requests */
   corsOk?: boolean;
   note?: string;
+  /** link shown under the note, e.g. where to get a required browser extension */
+  link?: { label: string; url: string };
   extra?: Record<string, any>;
 }
 
@@ -150,6 +152,20 @@ export const PRESETS: Preset[] = [
 
   // ---- Other ----
   { id: 'custom', name: 'Custom (OpenAI-compatible)', group: 'Other', baseUrl: 'http://localhost:8000/v1', chatApi: 'openai', keyRequired: false, note: 'Any server with /v1/chat/completions. Enable images if it also has /v1/images/generations.' },
+  {
+    id: 'flow-sidecar',
+    name: 'Google Flow (Flow Sidecar extension)',
+    group: 'Other',
+    baseUrl: '',
+    imageApi: 'flow-sidecar',
+    keyRequired: false,
+    corsOk: true,
+    note:
+      'Generates in your open Google Flow project through the Flow Sidecar browser extension (uses your Flow credits). ' +
+      'Install the extension, tick "Allow Alembic to control Flow" in its side panel and keep a Flow project open. ' +
+      'Text-to-image and image edits (no masks); ~1K output; up to 4 images per request.',
+    link: { label: 'Flow Sidecar Orchestrator on GitHub', url: 'https://github.com/thatBiologyStudent/flow-sidecar-orchestrator' },
+  },
   { id: 'demo', name: 'Demo (offline)', group: 'Other', baseUrl: '', chatApi: 'demo', imageApi: 'demo', keyRequired: false, corsOk: true, note: 'No AI: echoes your message into placeholder images. For trying the UI.' },
 ];
 
@@ -166,4 +182,5 @@ export const IMAGE_API_LABEL: Record<ImageApi, string> = {
   sdnext: 'SD.Next API',
   comfyui: 'ComfyUI API',
   demo: 'Demo placeholders',
+  'flow-sidecar': 'Google Flow via Flow Sidecar extension',
 };

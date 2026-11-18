@@ -18,6 +18,16 @@ export function systemPrompt(
   ];
   if (conn && caps) {
     lines.push('', `Active image backend: ${conn.name} (${conn.imageApi}${project.imageModel ? `, model ${project.imageModel}` : ''}).`);
+    if (conn.imageApi === 'flow-sidecar')
+      lines.push(
+        "This backend is Google Flow, driven in the user's browser through the Flow Sidecar extension (it uses the user's Flow credits). " +
+          'Supported aspect ratios: 16:9, 4:3, 1:1, 3:4, 9:16 (others are mapped to the nearest). At most 4 images per request; ' +
+          'output is about 1 megapixel (resolution tiers above 1k are not available from Flow). ' +
+          'Models: Nano Banana 2.1 (default, fast), Nano Banana Pro (highest quality), Nano Banana 2 Lite (cheapest). ' +
+          'Edits (edit_image) send the source image to Flow as a reference image: describe the complete desired result, not only the change; masks are not supported. ' +
+          'A generation takes about 20–120 seconds; generate fewer, well-considered images rather than many retries. ' +
+          'If a tool result says Flow Sidecar is disabled or no Flow project is open, tell the user exactly that fix and stop.',
+      );
     if (caps.promptStyle === 'tags') {
       lines.push(
         'This is a Stable Diffusion style backend: write prompts as comma-separated descriptive phrases/tags, most important first (subject, appearance, clothing, pose, setting, lighting, style, quality tags). Use negative_prompt for unwanted things.',
