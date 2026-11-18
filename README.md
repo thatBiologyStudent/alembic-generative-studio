@@ -91,7 +91,7 @@ Add as many providers as you like under **Providers** (the gear icon). Each one 
 | Cloud | OpenAI (chat + images), Anthropic, Google Gemini (chat + Gemini image / Imagen), xAI (chat + images), Mistral, DeepSeek, Groq, Together, DeepInfra (chat + images) |
 | Aggregators & subscriptions | OpenRouter (chat + images), NanoGPT (chat + images), LiteRouter (chat + images), Featherless, ArliAI, OpenCode Go, Command Code, Chutes, Requesty |
 | Local | Ollama, LM Studio, AUTOMATIC1111 / Forge, SD.Next, ComfyUI |
-| Other | Custom OpenAI-compatible, Demo (offline) |
+| Other | Custom OpenAI-compatible, Google Flow (via the Flow Sidecar extension), Demo (offline) |
 
 **Picking models.** Each project has four model slots, and every slot lists the models of all your providers, with search, favourites (star) and "Add model by name…":
 
@@ -150,8 +150,23 @@ The tool result tells the assistant which size was actually produced.
 | Google Gemini / Imagen | ✓ | ✓ (Gemini image models) | ✓* | – | – |
 | AUTOMATIC1111 / Forge, SD.Next | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ComfyUI | ✓ | ✓ | ✓ | ✓ | – |
+| Google Flow (Flow Sidecar extension) | ✓ | ✓ (reference image) | – | – | – |
 
 \* These providers have no real mask input, so the mask is sent as a second image with an instruction to change only the white area. How closely the model follows it depends on the model.
+
+### Google Flow (Flow Sidecar extension)
+
+Alembic can generate and edit images in **Google Flow** through the [Flow Sidecar Orchestrator](https://github.com/thatBiologyStudent/flow-sidecar-orchestrator) browser extension. Generations run in your open Flow project and use your **Flow credits**.
+
+1. Install Flow Sidecar **1.2.3 or newer** (Chrome/Edge → Extensions → Developer mode → Load unpacked → the `flow-sidecar-extension` folder).
+2. Open [Google Flow](https://flow.google.com), sign in and open a project. Best: drag that tab into its **own window** and leave it visible, so the browser doesn't slow it down.
+3. In the Flow Sidecar side panel, tick **"Allow Alembic to control Flow"** (off by default).
+4. In Alembic → Providers → Add provider → **Google Flow (Flow Sidecar extension)** → Save. The status line in the dialog should show ✓ Connected.
+5. Pick one of its models (Nano Banana 2.1, Nano Banana Pro, Nano Banana 2 Lite) as the Generate and/or Edit model and chat as usual. A dot next to the model shows whether Flow is ready (green), needs a step (amber) or can't be reached (red); hover it for the fix.
+
+What it supports: text-to-image and edits (the source image is sent to Flow as a reference; no masks), aspect ratios 16:9, 4:3, 1:1, 3:4 and 9:16 (others map to the nearest), up to 4 images per request (more are split into several requests), output about 1K. A generation takes roughly 20–120 seconds and only one runs at a time; if Flow is busy, Alembic waits and retries.
+
+The extension only connects on `http://localhost:5178`, `http://127.0.0.1:5178` and `https://thatbio.vercel.app`. For another address, add it to `content_scripts[1].matches` in the extension's `manifest.json` and reload the extension. If the extension is updated or reloaded, refresh the Alembic page.
 
 ### Proxy (CORS workaround)
 
