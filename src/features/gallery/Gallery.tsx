@@ -54,10 +54,10 @@ export function Gallery({ project }: { project: Project }) {
         void upload(e.dataTransfer.files);
       }}
     >
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <span className="text-xs font-medium tracking-wide text-muted uppercase">Images</span>
-        <span className="text-xs text-zinc-600">{images?.length ?? 0}</span>
-        <div className="ml-3 flex rounded-lg border border-line p-0.5 text-xs">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+        <span className="hidden text-xs font-medium tracking-wide text-muted uppercase sm:inline">Images</span>
+        <span className="hidden text-xs text-zinc-600 sm:inline">{images?.length ?? 0}</span>
+        <div className="flex sm:ml-3 rounded-lg border border-line p-0.5 text-xs">
           {(
             [
               ['all', 'All'],
@@ -72,10 +72,10 @@ export function Gallery({ project }: { project: Project }) {
           ))}
         </div>
         <div className="flex-1" />
-        <input type="range" min={120} max={360} value={size} onChange={(e) => setSize(+e.target.value)} className="w-24 accent-violet-500" title="Thumbnail size" />
+        <input type="range" min={120} max={360} value={size} onChange={(e) => setSize(+e.target.value)} className="hidden w-24 accent-violet-500 sm:block" title="Thumbnail size" />
         <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (upload(e.target.files ?? []), (e.target.value = ''))} />
         <button className="btn" onClick={() => fileRef.current?.click()}>
-          <Upload size={14} /> Upload
+          <Upload size={14} /> <span className="hidden sm:inline">Upload</span>
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -86,7 +86,7 @@ export function Gallery({ project }: { project: Project }) {
             <p className="text-xs text-zinc-600">Drop images here to upload references.</p>
           </div>
         )}
-        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${size}px, 1fr))` }}>
+        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${size}px, calc(50% - 4px)), 1fr))` }}>
           {jobs.map((j) => (
             <JobTile key={j.id} job={j} />
           ))}
