@@ -7,6 +7,8 @@ import { Workspace } from './features/workspace/Workspace';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { Toasts } from './components/Toasts';
 import { OutputFolderBanner } from './components/OutputFolderBanner';
+import { PwaUpdatePrompt } from './components/Pwa';
+import { SyncDialogHost } from './features/sync/SyncDialog';
 import { ensureDemoConnections } from './features/settings/bootstrap';
 import { BASE } from './lib/base';
 
@@ -23,6 +25,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       </Routes>
       <Toasts />
       <OutputFolderBanner />
+      <PwaUpdatePrompt />
+      <SyncDialogHost />
     </BrowserRouter>
   </React.StrictMode>,
 );
