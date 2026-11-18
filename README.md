@@ -231,7 +231,7 @@ ComfyUI ships with built-in workflows (checkpoint → KSampler) for txt2img, img
 
 ## Where data lives, backups and image output
 
-Everything (projects, chats, images, providers, keys) is stored in the browser's IndexedDB for this site's address only. It survives closing the browser, but **not** these:
+Everything (projects, chats, images, providers, keys) is stored in the browser's IndexedDB for this site's address only. The hosted version counts anonymous page views with Vercel Web Analytics (no cookies, nothing from your projects or keys); local copies don't. It survives closing the browser, but **not** these:
 - another browser, device or profile
 - private windows
 - clearing site data
