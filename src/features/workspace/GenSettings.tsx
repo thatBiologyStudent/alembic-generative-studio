@@ -42,7 +42,7 @@ export function GenSettings({ project, onClose }: { project: Project; onClose: (
   }, [project.imageConnId]);
 
   return (
-    <div className="absolute top-12 right-3 z-40 w-[380px] rounded-xl border border-line bg-panel p-4 shadow-2xl">
+    <div className="absolute top-12 right-3 left-3 z-40 max-h-[calc(100dvh-4rem)] overflow-y-auto rounded-xl sm:left-auto sm:w-[380px] border border-line bg-panel p-4 shadow-2xl">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold">Generation settings</h3>
         <button className="btn-ghost" onClick={onClose}>

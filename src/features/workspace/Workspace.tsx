@@ -8,6 +8,7 @@ import { Gallery } from '../gallery/Gallery';
 import { Viewer } from '../viewer/Viewer';
 import { useUI } from '../../store/ui';
 import { ProjectBar } from './ProjectBar';
+import { useIsMobile } from '../../lib/useMobile';
 
 export function Workspace() {
   const { id = '' } = useParams();
@@ -15,6 +16,13 @@ export function Workspace() {
   const viewing = useUI((s) => s.viewing[id]);
   const [chatW, setChatW] = useState(() => Number(safeGet('chatWidth')) || 440);
   const dragging = useRef(false);
+  const mobile = useIsMobile();
+  const [pane, setPane] = useState<'chat' | 'images'>('chat');
+  const imageCount = useLiveQuery(() => db.images.where('projectId').equals(id).count(), [id]);
+  // on phones, opening an image (e.g. tapping a thumbnail in chat) switches to the images pane
+  useEffect(() => {
+    if (viewing) setPane('images');
+  }, [viewing]);
 
   const onMove = useCallback((e: PointerEvent) => {
     if (!dragging.current) return;
@@ -45,6 +53,36 @@ export function Workspace() {
         <Link to="/" className="btn">
           <ArrowLeft size={15} /> Back to projects
         </Link>
+      </div>
+    );
+
+  if (mobile)
+    return (
+      <div className="flex h-full flex-col">
+        <ProjectBar project={project} />
+        <div className="flex shrink-0 border-b border-line bg-panel p-1 text-sm">
+          {(
+            [
+              ['chat', 'Chat'],
+              ['images', `Images${imageCount ? ` · ${imageCount}` : ''}`],
+            ] as const
+          ).map(([k, l]) => (
+            <button
+              key={k}
+              className={`flex-1 rounded-md py-1.5 ${pane === k ? 'bg-zinc-700 text-white' : 'text-muted'}`}
+              onClick={() => setPane(k)}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        {/* both panes stay mounted so chat scroll position and composer drafts survive switching */}
+        <div className={`min-h-0 flex-1 flex-col bg-panel ${pane === 'chat' ? 'flex' : 'hidden'}`}>
+          <ChatPanel project={project} />
+        </div>
+        <div className={`min-h-0 flex-1 flex-col ${pane === 'images' ? 'flex' : 'hidden'}`}>
+          {viewing ? <Viewer project={project} imageId={viewing} /> : <Gallery project={project} />}
+        </div>
       </div>
     );
 
