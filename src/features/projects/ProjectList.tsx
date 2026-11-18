@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Download, FolderOpen, ImageIcon, MoreVertical, Pencil, Plus, Settings, Trash2, Upload } from 'lucide-react';
+import { ArrowLeftRight, Download, FolderOpen, ImageIcon, MoreVertical, Pencil, Plus, Settings, Trash2, Upload } from 'lucide-react';
+import { openSync } from '../sync/SyncDialog';
 import { db, type Project } from '../../db/schema';
 import { createProject, deleteProject, exportProject, importProject, updateProject } from '../../db/repo';
 import { protectStorage, restoreAll } from '../../db/backup';
@@ -11,6 +12,7 @@ import { errMsg } from '../../lib/http';
 import { useUI } from '../../store/ui';
 import { asset } from '../../lib/base';
 import { BackLink } from '../../components/BackLink';
+import { InstallButton } from '../../components/Pwa';
 
 export function ProjectList() {
   const projects = useLiveQuery(() => db.projects.orderBy('updatedAt').reverse().toArray(), []);
@@ -38,7 +40,7 @@ export function ProjectList() {
 
   return (
     <div className="min-h-full">
-      <header className="flex items-center justify-between border-b border-line px-6 py-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-6">
         <div className="flex items-center gap-2.5">
           <BackLink compact />
           <img src={asset('logo.webp')} alt="" className="h-10 w-10" />
@@ -46,13 +48,17 @@ export function ProjectList() {
             <h1 className="text-base leading-tight whitespace-nowrap">
               <span className="font-semibold">Alembic</span> <span className="font-normal text-muted">Generative Studio</span>
             </h1>
-            <p className="text-xs text-muted">Bring your own keys · everything stays in this browser</p>
+            <p className="hidden text-xs text-muted sm:block">Bring your own keys · everything stays in this browser</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input ref={fileRef} type="file" accept=".zip" className="hidden" onChange={(e) => (onImport(e.target.files?.[0]), (e.target.value = ''))} />
           <button className="btn" onClick={() => fileRef.current?.click()}>
             <Upload size={15} /> Import
+          </button>
+          <InstallButton />
+          <button className="btn" onClick={() => openSync('send')} title="Send to or receive from another device">
+            <ArrowLeftRight size={15} /> Sync
           </button>
           <Link to="/settings" className="btn">
             <Settings size={15} /> Providers

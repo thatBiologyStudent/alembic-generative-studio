@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Archive, Download, FolderOpen, HardDrive, RotateCcw, ShieldCheck, Upload } from 'lucide-react';
+import { Archive, ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Download, FolderOpen, HardDrive, RotateCcw, ShieldCheck, Upload } from 'lucide-react';
+import { openSync } from '../sync/SyncDialog';
 import { exportAll, protectStorage, restoreAll, storageProtected } from '../../db/backup';
 import { getSetting } from '../../db/repo';
 import {
@@ -177,6 +178,18 @@ export function BackupSection() {
         Everything lives in this browser only. A backup is one .zip with all projects (chats and images), providers and settings — use it to move to another
         browser or computer, or as insurance against the browser clearing site data.
       </p>
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-bg px-3 py-2">
+        <ArrowLeftRight size={15} className="text-muted" />
+        <span className="mr-auto text-xs text-muted">
+          <b className="text-zinc-200">Sync with another device</b> — send projects, providers and settings directly to another browser with a short code.
+        </span>
+        <button className="btn" onClick={() => openSync('send')}>
+          <ArrowUpFromLine size={14} /> Send
+        </button>
+        <button className="btn" onClick={() => openSync('receive')}>
+          <ArrowDownToLine size={14} /> Receive
+        </button>
+      </div>
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <button
           className="btn-primary"

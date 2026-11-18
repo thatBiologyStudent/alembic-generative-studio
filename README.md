@@ -22,8 +22,8 @@ You bring your own API keys (OpenAI, Claude, Gemini, OpenRouter, NanoGPT, ArliAI
 - **Several providers at once.** Separate model slots for chat, generate, edit and upscale, each from any provider, with search and favourites.
 - **Image actions.** Mask-painting inpaint, img2img and variations, extract character, describe, upscale.
 - **The assistant asks before switching models.** If the current setup can't do something, it proposes a model and waits for your Allow / Decline.
-- **Saving and backup.** Optional auto-save to a folder or downloads, project export/import, and a full backup to one `.zip`.
-- **Runs anywhere.** Locally with one double-click, or as a static site on Vercel, with an optional built-in CORS proxy.
+- **Saving, backup and sync.** Optional auto-save to a folder or downloads, project export/import, a full backup to one `.zip`, and direct device-to-device sync with a short code.
+- **Runs anywhere.** Locally with one double-click, or as a static site on Vercel, with an optional built-in CORS proxy. The hosted version installs as an app (PWA).
 
 ## Screenshots
 
@@ -81,6 +81,36 @@ Then open http://localhost:5178.
 ## Deploy (Vercel or any static host)
 
 `npm run build` produces a static site in `dist/`. On Vercel, import the repo and choose the **Vite** preset. `vercel.json` already contains the SPA rewrite, and `api/proxy.ts` provides the optional CORS proxy as an Edge Function. On other static hosts everything works except the proxy.
+
+## Sync between devices
+
+Move projects, providers and settings from one browser to another with a short code, e.g. from the app on your PC (`start.bat`) to the website on your phone, or between two computers.
+
+1. On the device that has the data: **Sync** (project list) → **Send from this device**. Choose what to send: all or chosen projects (with chats and images), providers (API keys only if you tick it), settings. Click **Create code**.
+2. On the other device: **Sync** → **Receive on this device** and enter the code, or scan the QR code with a phone.
+3. Both devices show the same 4-digit **check number**. If they match, click **Send now** on the sending device.
+
+What happens on the receiving device: new projects are added; a project it already has is replaced only when the sent copy is newer; providers are added or updated (an existing key is kept when none is sent); settings are taken over (reload afterwards to apply them).
+
+How it works: the two browsers connect directly with WebRTC and the data goes straight from one to the other, encrypted. A small relay (`/api/sync`) only passes on the connection handshake (a few KB) for up to 10 minutes; it never sees projects, images, settings or keys. Both devices must be open at the same time, and both need internet access or the same Wi-Fi. Some company, school or mobile networks block direct connections; then try another network or a phone hotspot.
+
+**Setup for your own deployment:** the relay needs a small Redis database. In Vercel: your project → **Storage** (Marketplace) → **Upstash for Redis** → create (the free plan is plenty) → connect it to the project, then redeploy. That sets `KV_REST_API_URL` and `KV_REST_API_TOKEN` (`UPSTASH_REDIS_REST_URL` / `_TOKEN` also work). Without it, `/api/sync` answers "Sync is not set up on this server".
+
+**Local copies (`start.bat`)** relay their handshakes through the public deployment (`https://thatbio.vercel.app/tools/alembic/api/sync`), so a local copy and the website can sync with each other. Set the environment variable `ALEMBIC_SYNC_SERVER` to change that: another deployment's `…/api/sync` URL, or `local` to keep codes on this machine only (then only browsers on this PC can use them).
+
+## Install as an app (PWA)
+
+The hosted version can be installed like an app: it then opens in its own window, starts instantly and opens offline.
+
+- **Chrome, Edge, Brave (desktop and Android):** click **Install app** on the project list, or the install icon in the address bar.
+- **Safari on iPhone/iPad:** Share → **Add to Home Screen**. On macOS Safari: File → **Add to Dock**.
+
+Notes:
+- Generating still needs your providers to be reachable; local servers (A1111, SD.Next, ComfyUI, Ollama) work without internet.
+- Only the app's own files are cached. Requests to providers and to `/api/proxy` always go to the network.
+- When a new version is deployed, a **"A new version is available · Reload"** notice appears. Nothing reloads on its own, so a running generation is never cut off.
+- Chrome and Edge share your data between the installed app and the website (same address). On iPhone/iPad the home-screen app has its own storage, so move projects over with Backup & restore. Home-screen apps are also exempt from Safari's 7-day data cleanup.
+- Installing needs https (or localhost), so it works on Vercel and with `npm run build` + `npm run preview`. `start.bat` runs the dev server, where the service worker is switched off.
 
 ## Providers
 
