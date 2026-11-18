@@ -91,7 +91,7 @@ Add as many providers as you like under **Providers** (the gear icon). Each one 
 | Cloud | OpenAI (chat + images), Anthropic, Google Gemini (chat + Gemini image / Imagen), xAI (chat + images), Mistral, DeepSeek, Groq, Together, DeepInfra (chat + images) |
 | Aggregators & subscriptions | OpenRouter (chat + images), NanoGPT (chat + images), LiteRouter (chat + images), Featherless, ArliAI, OpenCode Go, Command Code, Chutes, Requesty |
 | Local | Ollama, LM Studio, AUTOMATIC1111 / Forge, SD.Next, ComfyUI |
-| Other | Custom OpenAI-compatible, Google Flow (via the Flow Sidecar extension), Demo (offline) |
+| Other | Custom OpenAI-compatible, Google Flow (via the [Flow Sidecar extension](https://github.com/thatBiologyStudent/flow-sidecar-orchestrator), see [below](#google-flow-flow-sidecar-extension)), Demo (offline) |
 
 **Picking models.** Each project has four model slots, and every slot lists the models of all your providers, with search, favourites (star) and "Add model by name…":
 
