@@ -1,32 +1,62 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw, XCircle } from 'lucide-react';
-import { flowReadiness, FLOW_SIDECAR_REPO, type FlowReadiness } from '../../providers/image/flowSidecarClient';
+import { flowReadiness, FLOW_SIDECAR_REPO } from '../../providers/image/flowSidecarClient';
+import { bingReadiness, BING_SIDECAR_REPO } from '../../providers/image/bingSidecarClient';
 import { Spinner } from '../../components/common';
 
-/** Polls the Flow Sidecar bridge. intervalMs = 0 checks once (plus manual refresh). */
-export function useFlowReadiness(active: boolean, intervalMs = 0) {
-  const [state, setState] = useState<FlowReadiness | undefined>();
+/** What a browser-extension provider (Flow Sidecar, Bing Sidecar) reports about itself. */
+interface Readiness {
+  level: 'ok' | 'warn' | 'error';
+  message: string;
+  hello?: { capabilities: { models: string[] } };
+}
+
+interface SidecarSpec {
+  name: string;
+  check: () => Promise<Readiness>;
+  repoUrl: string;
+  okHint: string;
+}
+
+export const FLOW_SPEC: SidecarSpec = {
+  name: 'Flow Sidecar',
+  check: flowReadiness,
+  repoUrl: FLOW_SIDECAR_REPO,
+  okHint: "Keep Flow in its own window while generating, so the browser doesn't slow it down.",
+};
+
+export const BING_SPEC: SidecarSpec = {
+  name: 'Bing Image Sidecar',
+  check: bingReadiness,
+  repoUrl: BING_SIDECAR_REPO,
+  okHint: "Keep the Bing Image Creator tab open (best in its own window) while generating.",
+};
+
+/** Polls an extension bridge. intervalMs = 0 checks once (plus manual refresh). */
+function useReadiness(check: () => Promise<Readiness>, active: boolean, intervalMs = 0) {
+  const [state, setState] = useState<Readiness | undefined>();
   const [checking, setChecking] = useState(false);
-  const check = useCallback(async () => {
+  const run = useCallback(async () => {
     setChecking(true);
-    const r = await flowReadiness();
+    const r = await check();
     setState(r);
     setChecking(false);
     return r;
-  }, []);
+  }, [check]);
   useEffect(() => {
     if (!active) return;
-    void check();
+    void run();
     if (!intervalMs) return;
-    const t = setInterval(check, intervalMs);
+    const t = setInterval(run, intervalMs);
     return () => clearInterval(t);
-  }, [active, intervalMs, check]);
-  return { state, checking, check };
+  }, [active, intervalMs, run]);
+  return { state, checking, check: run };
 }
 
+/** Turns https links in a status message into clickable links. */
 const linkify = (text: string) =>
-  text.split(/(https:\/\/flow\.google\.com)/).map((part, i) =>
-    part === 'https://flow.google.com' ? (
+  text.split(/(https:\/\/[^\s)]+)/).map((part, i) =>
+    /^https:\/\//.test(part) ? (
       <a key={i} className="text-accent2 hover:underline" href={part} target="_blank" rel="noreferrer">
         {part}
       </a>
@@ -35,9 +65,9 @@ const linkify = (text: string) =>
     ),
   );
 
-/** Status block shown in the provider dialog for the Google Flow preset. */
-export function FlowSidecarStatus({ onModels }: { onModels?: (models: string[]) => void }) {
-  const { state, checking, check } = useFlowReadiness(true);
+/** Status block shown in the provider dialog for an extension-driven provider. */
+export function SidecarStatus({ spec, onModels }: { spec: SidecarSpec; onModels?: (models: string[]) => void }) {
+  const { state, checking, check } = useReadiness(spec.check, true);
 
   useEffect(() => {
     const models = state?.hello?.capabilities.models;
@@ -68,11 +98,11 @@ export function FlowSidecarStatus({ onModels }: { onModels?: (models: string[]) 
           <XCircle size={14} className="mt-0.5 shrink-0" />
         )}
         <div className="min-w-0 flex-1 space-y-1 leading-relaxed">
-          <div>{checking || !state ? 'Checking Flow Sidecar…' : linkify(state.message)}</div>
-          {state?.level === 'ok' && <div className="text-muted">Keep Flow in its own window while generating, so the browser doesn't slow it down.</div>}
+          <div>{checking || !state ? `Checking ${spec.name}…` : linkify(state.message)}</div>
+          {state?.hello && state.level !== 'error' && <div className="text-muted">{spec.okHint}</div>}
           {notInstalled && (
-            <a className="inline-flex items-center gap-1 text-accent2 hover:underline" href={FLOW_SIDECAR_REPO} target="_blank" rel="noreferrer">
-              Get the Flow Sidecar extension <ExternalLink size={10} />
+            <a className="inline-flex items-center gap-1 text-accent2 hover:underline" href={spec.repoUrl} target="_blank" rel="noreferrer">
+              Get the {spec.name} extension <ExternalLink size={10} />
             </a>
           )}
         </div>
@@ -85,8 +115,8 @@ export function FlowSidecarStatus({ onModels }: { onModels?: (models: string[]) 
 }
 
 /** Small coloured dot for the model picker: green ready, amber needs a step, red not reachable. */
-export function FlowStatusDot() {
-  const { state } = useFlowReadiness(true, 15_000);
+export function SidecarStatusDot({ spec, label }: { spec: SidecarSpec; label: string }) {
+  const { state } = useReadiness(spec.check, true, 15_000);
   const color = !state ? 'bg-zinc-600' : state.level === 'ok' ? 'bg-emerald-400' : state.level === 'warn' ? 'bg-amber-400' : 'bg-red-500';
-  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} title={state ? `Google Flow: ${state.message}` : 'Checking Flow Sidecar…'} />;
+  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} title={state ? `${label}: ${state.message}` : `Checking ${spec.name}…`} />;
 }

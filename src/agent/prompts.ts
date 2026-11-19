@@ -28,6 +28,29 @@ export function systemPrompt(
           'A generation takes about 20–120 seconds; generate fewer, well-considered images rather than many retries. ' +
           'If a tool result says Flow Sidecar is disabled or no Flow project is open, tell the user exactly that fix and stop.',
       );
+    if (conn.imageApi === 'bing-sidecar')
+      lines.push(
+        "This backend is Bing Image Creator (model MAI-Image-2.6-Flash), driven in the user's browser through the Bing Image Sidecar extension. It is free. " +
+          'Supported aspect ratios: 1:1, 3:2, 2:3 (others are mapped to the nearest; there is no 16:9 or 9:16). At most 4 images per request, about 1 megapixel. ' +
+          'Edits (edit_image) send the source as one reference image: describe the complete desired result; masks are not supported. ' +
+          'Bing blocks prompts it considers unsafe; if a prompt is blocked, rephrase it more neutrally once. If the user is not signed in to Microsoft, images carry a watermark. ' +
+          'If a tool result says the extension is disabled or no Bing tab is open, tell the user exactly that fix and stop.',
+      );
+    if (conn.imageApi === 'cloudflare')
+      lines.push(
+        "This backend is Cloudflare Workers AI on the user's free daily allowance. FLUX.1 schnell and Leonardo models only create from text; FLUX.2 and Stable Diffusion models can also edit. " +
+          'Prefer one image per request and avoid unnecessary retries, because the daily free allowance is small.',
+      );
+    if (conn.imageApi === 'nvidia')
+      lines.push(
+        "This backend is NVIDIA NIM's free hosted FLUX.1 models (about 40 requests per minute). Sizes are fixed: the closest of 1:1, 4:7, 7:4, 7:9, 9:7, 2:3 and 3:2 is used. " +
+          'Edits use FLUX.1 Kontext: describe the change in plain words; masks are not supported. Keep image counts low to stay within the rate limit.',
+      );
+    if (conn.imageApi === 'civitai')
+      lines.push(
+        'This backend is CivitAI with community checkpoints (SD 1.5, SDXL/Pony/Illustrious, Flux.1). For SD 1.5 and SDXL-based models write comma-separated tags; ' +
+          'for Pony models start with "score_9, score_8_up, score_7_up"; for Flux.1 write natural sentences. Free-tier generations can be slow; non-free models cost the user Buzz, so keep image counts low.',
+      );
     if (caps.promptStyle === 'tags') {
       lines.push(
         'This is a Stable Diffusion style backend: write prompts as comma-separated descriptive phrases/tags, most important first (subject, appearance, clothing, pose, setting, lighting, style, quality tags). Use negative_prompt for unwanted things.',

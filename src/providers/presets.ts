@@ -3,7 +3,7 @@ import type { ChatApi, ImageApi } from '../db/schema';
 export interface Preset {
   id: string;
   name: string;
-  group: 'Cloud' | 'Aggregators & subscriptions' | 'Local' | 'Other';
+  group: 'Free' | 'Cloud' | 'Aggregators & subscriptions' | 'Local' | 'Other';
   baseUrl: string;
   chatApi?: ChatApi;
   imageApi?: ImageApi;
@@ -24,6 +24,63 @@ export interface Preset {
  * Base URLs current as of late 2026. Presets only pre-fill the form: everything stays editable.
  */
 export const PRESETS: Preset[] = [
+  // ---- Free (or with a usable free tier) ----
+  {
+    id: 'cloudflare',
+    name: 'Cloudflare Workers AI',
+    group: 'Free',
+    baseUrl: '',
+    chatApi: 'openai',
+    imageApi: 'cloudflare',
+    keyRequired: true,
+    keyUrl: 'https://dash.cloudflare.com/profile/api-tokens',
+    note:
+      'Free plan: 10,000 "neurons" per day, shared by chat and images. FLUX.1 schnell is cheap (well over 100 images a day); Leonardo and FLUX.2 dev use much more. ' +
+      'Enter your Account ID and an API token with the "Workers AI" permission. For chat, pick a model with tool calling and vision, e.g. Llama 4 Scout.',
+    link: { label: 'Workers AI pricing and free allocation', url: 'https://developers.cloudflare.com/workers-ai/platform/pricing/' },
+  },
+  {
+    id: 'nvidia',
+    name: 'NVIDIA NIM (build.nvidia.com)',
+    group: 'Free',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    chatApi: 'openai',
+    imageApi: 'nvidia',
+    imageBaseUrl: 'https://ai.api.nvidia.com/v1',
+    keyRequired: true,
+    keyUrl: 'https://build.nvidia.com/settings/api-keys',
+    note:
+      'Free with an NVIDIA Developer account (trial terms): about 40 requests per minute across all models. ' +
+      'Chat: large open models (Llama, Qwen, DeepSeek, Mistral, …); pick one with tool calling, and a vision model so the assistant can see images. ' +
+      'Images: FLUX.1 schnell and dev in fixed sizes (closest aspect ratio is used); set FLUX.1 Kontext as the Edit model for edits.',
+  },
+  {
+    id: 'civitai',
+    name: 'CivitAI',
+    group: 'Free',
+    baseUrl: 'https://orchestration.civitai.com',
+    imageApi: 'civitai',
+    keyRequired: true,
+    keyUrl: 'https://civitai.com/user/account',
+    extra: { freeTier: true },
+    note:
+      "Freemium. Models on CivitAI's free tier cost no Buzz (daily quota, slower queue); other models use Buzz from your account. " +
+      'Works with SD 1.5, SDXL/Pony/Illustrious and Flux.1 checkpoints: in the model picker use "Add model by name" and paste the AIR from the model page (details box), e.g. urn:air:sdxl:checkpoint:civitai:101055@128078.',
+  },
+  {
+    id: 'bing-sidecar',
+    name: 'Bing Image Creator (Bing Sidecar extension)',
+    group: 'Free',
+    baseUrl: '',
+    imageApi: 'bing-sidecar',
+    keyRequired: false,
+    corsOk: true,
+    note:
+      'Free. Generates in your open Bing Image Creator tab through the Bing Image Sidecar browser extension. ' +
+      'Install the extension, tick "Allow Alembic to control Bing" in its side panel and keep https://www.bing.com/images/create/ai-image-generator open. ' +
+      'Sign in to Microsoft there, or Bing adds a watermark. Aspect ratios 1:1, 3:2, 2:3; ~1K output; up to 4 images per request; edits with one reference image (no masks).',
+    link: { label: 'Bing Image Sidecar Orchestrator on GitHub', url: 'https://github.com/thatBiologyStudent/bing-image-sidecar-orchestrator' },
+  },
   // ---- Cloud ----
   {
     id: 'openai',
@@ -183,4 +240,8 @@ export const IMAGE_API_LABEL: Record<ImageApi, string> = {
   comfyui: 'ComfyUI API',
   demo: 'Demo placeholders',
   'flow-sidecar': 'Google Flow via Flow Sidecar extension',
+  'bing-sidecar': 'Bing Image Creator via Bing Image Sidecar extension',
+  cloudflare: 'Cloudflare Workers AI',
+  civitai: 'CivitAI Orchestration',
+  nvidia: 'NVIDIA NIM hosted image models',
 };

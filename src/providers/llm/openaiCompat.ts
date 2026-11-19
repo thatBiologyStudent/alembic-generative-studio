@@ -23,6 +23,15 @@ export class OpenAICompatProvider implements LLMProvider {
   }
 
   async listModels(): Promise<string[]> {
+    if (this.conn.preset === 'cloudflare') {
+      // Workers AI has no /models on its OpenAI-compatible endpoint: use the account's model search
+      const account = this.base.replace(/\/ai\/v1$/, '');
+      const r = await apiJson<{ result?: { name: string }[] }>(
+        via(this.conn, `${account}/ai/models/search?task=${encodeURIComponent('Text Generation')}&per_page=200`),
+        { headers: this.headers() },
+      );
+      return (r.result ?? []).map((m) => m.name).filter((n) => n.startsWith('@cf/')).sort();
+    }
     const j = await apiJson(via(this.conn, `${this.base}/models`), { headers: this.headers() });
     let list = extractModelList(j).filter((m) => isChatModel(m.id, m.meta));
     if (this.conn.preset === 'openai') list = list.filter((m) => /^(gpt|o\d|chatgpt)/.test(m.id));

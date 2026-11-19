@@ -89,6 +89,8 @@ type Op =
 
 /** Runs an image job against the project's backend, shows progress in the gallery and saves results. */
 export async function runImageOp(project: Project, op: Op, signal?: AbortSignal, opts?: { heldForCheck?: boolean }): Promise<ImageRecord[]> {
+  // providers answer an empty prompt with cryptic validation errors: say what is wrong instead
+  if (op.kind === 'txt2img' && !op.params.prompt?.trim()) throw new Error('The prompt was empty. Write a description of the image to generate.');
   const { conn, backend, model } = await requireSlot(project, op.kind === 'txt2img' ? 'generate' : op.kind === 'img2img' ? 'edit' : 'upscale');
   const d = project.defaults;
   const ui = useUI.getState();

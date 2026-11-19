@@ -118,6 +118,7 @@ Add as many providers as you like under **Providers** (the gear icon). Each one 
 
 | Group | Presets |
 |---|---|
+| Free | Cloudflare Workers AI (chat + images, see [below](#free-providers)), NVIDIA NIM (chat + images), CivitAI (images, free tier + Buzz), Bing Image Creator (via the [Bing Image Sidecar extension](https://github.com/thatBiologyStudent/bing-image-sidecar-orchestrator)) |
 | Cloud | OpenAI (chat + images), Anthropic, Google Gemini (chat + Gemini image / Imagen), xAI (chat + images), Mistral, DeepSeek, Groq, Together, DeepInfra (chat + images) |
 | Aggregators & subscriptions | OpenRouter (chat + images), NanoGPT (chat + images), LiteRouter (chat + images), Featherless, ArliAI, OpenCode Go, Command Code, Chutes, Requesty |
 | Local | Ollama, LM Studio, AUTOMATIC1111 / Forge, SD.Next, ComfyUI |
@@ -181,6 +182,10 @@ The tool result tells the assistant which size was actually produced.
 | AUTOMATIC1111 / Forge, SD.Next | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ComfyUI | ✓ | ✓ | ✓ | ✓ | – |
 | Google Flow (Flow Sidecar extension) | ✓ | ✓ (reference image) | – | – | – |
+| Bing Image Creator (Bing Image Sidecar extension) | ✓ | ✓ (reference image) | – | – | – |
+| Cloudflare Workers AI | ✓ | ✓ (FLUX.2, Stable Diffusion models) | – | – | – |
+| NVIDIA NIM (build.nvidia.com) | ✓ | ✓ (FLUX.1 Kontext and other edit models) | – | – | – |
+| CivitAI (SD 1.5, SDXL/Pony/Illustrious, Flux.1 checkpoints) | ✓ | ✓ | – | – | – |
 
 \* These providers have no real mask input, so the mask is sent as a second image with an instruction to change only the white area. How closely the model follows it depends on the model.
 
@@ -197,6 +202,15 @@ Alembic can generate and edit images in **Google Flow** through the [Flow Sideca
 What it supports: text-to-image and edits (the source image is sent to Flow as a reference; no masks), aspect ratios 16:9, 4:3, 1:1, 3:4 and 9:16 (others map to the nearest), up to 4 images per request (more are split into several requests), output about 1K. A generation takes roughly 20–120 seconds and only one runs at a time; if Flow is busy, Alembic waits and retries.
 
 The extension only connects on `http://localhost:5178`, `http://127.0.0.1:5178` and `https://thatbio.vercel.app`. For another address, add it to `content_scripts[1].matches` in the extension's `manifest.json` and reload the extension. If the extension is updated or reloaded, refresh the Alembic page.
+
+### Free providers
+
+The **Free** group in "Add provider" lists services you can use without paying. Their model lists are read from the provider (and refreshed daily, or with the refresh button in the model picker), so new models show up on their own:
+
+- **Cloudflare Workers AI** (chat + images). The free plan gives 10,000 "neurons" per day, shared by chat and images. FLUX.1 schnell is cheap (well over 100 images a day); Leonardo and FLUX.2 dev use much more. You need your **Account ID** and an **API token** with the "Workers AI" permission ([create one](https://dash.cloudflare.com/profile/api-tokens)). FLUX.1 schnell and the Leonardo models only create from text; pick a FLUX.2 or Stable Diffusion model as the Edit model. For chat, use a model with tool calling and vision, e.g. Llama 4 Scout. The proxy is on by default because Cloudflare's API blocks direct browser requests.
+- **NVIDIA NIM** (chat + images, [build.nvidia.com](https://build.nvidia.com)). Free with an NVIDIA Developer account under NVIDIA's trial terms, at about 40 requests per minute across all models. Create a key at [build.nvidia.com → API Keys](https://build.nvidia.com/settings/api-keys). Chat models come from NVIDIA's `/v1/models` list, image models live from NVIDIA's API catalog, so new models appear without an Alembic update. FLUX.1 sizes are fixed, so the closest aspect ratio is used. For edits, set FLUX.1 Kontext (or another edit model) as the Edit model; the source is sent as a small JPEG because NVIDIA only accepts small inline images. The proxy is on by default.
+- **CivitAI** (images, freemium). Add your API key from civitai.com → Account settings. Models on CivitAI's free tier cost no Buzz (daily quota, queued after paid work), and the provider setting "Use CivitAI's free tier" uses it automatically. Any other model is paid with Buzz from your account. Any SD 1.5, SDXL-based (Pony, Illustrious, NoobAI) or Flux.1 **checkpoint** works: in the model picker choose "Add model by name" and paste the model's **AIR** from its CivitAI page (details box), e.g. `urn:air:sdxl:checkpoint:civitai:101055@128078`.
+- **Bing Image Creator** (images, free) through the [Bing Image Sidecar Orchestrator](https://github.com/thatBiologyStudent/bing-image-sidecar-orchestrator) extension. Install the extension, open [Bing Image Creator](https://www.bing.com/images/create/ai-image-generator) in a tab (sign in to Microsoft, otherwise Bing adds a watermark), tick **"Allow Alembic to control Bing"** in the extension's side panel, then add the provider. Aspect ratios 1:1, 3:2 and 2:3, about 1K output, edits with one reference image (no masks). Like Flow Sidecar, it only connects on `localhost:5178`, `127.0.0.1:5178` and `thatbio.vercel.app`.
 
 ### Proxy (CORS workaround)
 
