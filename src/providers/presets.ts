@@ -35,7 +35,7 @@ export const PRESETS: Preset[] = [
     keyRequired: true,
     keyUrl: 'https://dash.cloudflare.com/profile/api-tokens',
     note:
-      'Free plan: 10,000 "neurons" per day, shared by chat and images. FLUX.1 schnell is cheap (well over 100 images a day); Leonardo and FLUX.2 dev use much more. ' +
+      'Free plan: 10,000 "neurons" per day, shared by chat and images. FLUX.2 klein 4B is the best everyday pick (~80 images a day, can edit); FLUX.1 schnell is cheapest for drafts. FLUX.2 klein 9B, FLUX.2 dev and Leonardo allow only a handful of images a day. ' +
       'Enter your Account ID and an API token with the "Workers AI" permission. For chat, pick a model with tool calling and vision, e.g. Llama 4 Scout.',
     link: { label: 'Workers AI pricing and free allocation', url: 'https://developers.cloudflare.com/workers-ai/platform/pricing/' },
   },

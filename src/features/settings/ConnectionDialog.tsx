@@ -1,3 +1,4 @@
+import { CloudflarePrices } from './CloudflarePrices';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, CheckCircle2, ExternalLink, RefreshCw, XCircle } from 'lucide-react';
 import type { ChatApi, Connection, ImageApi } from '../../db/schema';
@@ -100,6 +101,7 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
             )}
           </p>
         )}
+        {isCloudflare && <CloudflarePrices />}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name">
