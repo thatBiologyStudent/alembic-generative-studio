@@ -4,6 +4,10 @@ import { ChatImageBackend } from './chatImage';
 import { ComfyBackend } from './comfy';
 import { DemoBackend } from './demo';
 import { FlowSidecarBackend } from './flowSidecar';
+import { BingSidecarBackend } from './bingSidecar';
+import { CloudflareImageBackend } from './cloudflare';
+import { CivitaiImageBackend } from './civitai';
+import { NvidiaImageBackend } from './nvidia';
 import { GeminiImageBackend } from './gemini';
 import { OpenAIImagesBackend } from './openaiImages';
 import type { ImageBackend } from './types';
@@ -28,6 +32,14 @@ export function getImageBackend(c: Connection): ImageBackend {
       return new DemoBackend();
     case 'flow-sidecar':
       return new FlowSidecarBackend(conn);
+    case 'bing-sidecar':
+      return new BingSidecarBackend(conn);
+    case 'cloudflare':
+      return new CloudflareImageBackend(conn);
+    case 'civitai':
+      return new CivitaiImageBackend(conn);
+    case 'nvidia':
+      return new NvidiaImageBackend(conn);
     default:
       throw new Error(`${conn.name} is not set up for images`);
   }

@@ -8,7 +8,8 @@ import { fetchModelList, forgetModelLists, type ModelKind } from '../../provider
 import { Field, Modal, Spinner } from '../../components/common';
 import { checkProxy } from '../../lib/http';
 import { uid } from '../../lib/id';
-import { FlowSidecarStatus } from './FlowSidecarStatus';
+import { BING_SPEC, FLOW_SPEC, SidecarStatus } from './FlowSidecarStatus';
+import { cloudflareBase } from '../../providers/image/cloudflare';
 
 function fromPreset(p: Preset, proxyOk: boolean): Connection {
   const pageIsLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -47,8 +48,12 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
   const set = (p: Partial<Connection>) => setC((x) => ({ ...x!, ...p }));
   const setExtra = (p: Record<string, any>) => setC((x) => ({ ...x!, extra: { ...x!.extra, ...p } }));
   // providers without a URL or key (Demo, Google Flow via the browser extension)
-  const noNet = c.preset === 'demo' || c.preset === 'flow-sidecar' || c.imageApi === 'flow-sidecar';
   const isFlow = c.imageApi === 'flow-sidecar';
+  const isBing = c.imageApi === 'bing-sidecar';
+  const isCloudflare = c.preset === 'cloudflare';
+  // providers without a URL or key (Demo, the browser-extension providers)
+  const noNet = c.preset === 'demo' || isFlow || isBing || c.preset === 'flow-sidecar' || c.preset === 'bing-sidecar';
+  const sidecar = isFlow ? FLOW_SPEC : isBing ? BING_SPEC : undefined;
   const current = (): Connection => ({ ...c, chatModels: lines(chatText), imageModels: lines(imageText) });
 
   const runTest = async () => {
@@ -100,7 +105,21 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
           <Field label="Name">
             <input className="input" value={c.name} onChange={(e) => set({ name: e.target.value })} required />
           </Field>
-          {!noNet && (
+          {isCloudflare && (
+            <Field label="Account ID" hint="Cloudflare dashboard → Workers AI → “Use REST API”, or the ID in your dashboard URL.">
+              <input
+                className="input font-mono"
+                value={c.extra?.accountId ?? ''}
+                placeholder="32-character account ID"
+                required
+                onChange={(e) => {
+                  const id = e.target.value.trim();
+                  setC((x) => ({ ...x!, extra: { ...x!.extra, accountId: id }, baseUrl: `${cloudflareBase(id)}/ai/v1`, imageBaseUrl: cloudflareBase(id) }));
+                }}
+              />
+            </Field>
+          )}
+          {!noNet && !isCloudflare && (
             <Field label="Base URL">
               <input className="input" value={c.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} placeholder={preset.baseUrl} />
             </Field>
@@ -160,7 +179,7 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
                     </option>
                   ))}
                 </select>
-                {c.imageApi !== 'demo' && !isFlow && (
+                {c.imageApi !== 'demo' && !noNet && !isCloudflare && (
                   <Field label="Image base URL (if different)">
                     <input className="input mb-2" value={c.imageBaseUrl ?? ''} placeholder={c.baseUrl} onChange={(e) => set({ imageBaseUrl: e.target.value || undefined })} />
                   </Field>
@@ -187,7 +206,19 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
           </div>
         </div>
 
-        {isFlow && <FlowSidecarStatus onModels={(m) => setImageText((t) => (t.trim() ? t : m.join('\n')))} />}
+        {sidecar && <SidecarStatus spec={sidecar} onModels={(m) => setImageText((t) => (t.trim() ? t : m.join('\n')))} />}
+
+        {c.imageApi === 'civitai' && (
+          <label className="flex items-start gap-2 rounded-lg border border-line p-3 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={c.extra?.freeTier !== false} onChange={(e) => setExtra({ freeTier: e.target.checked })} />
+            <span>
+              Use CivitAI's free tier when the chosen model is on it
+              <span className="block text-xs text-muted">
+                Free-tier generations cost no Buzz but count against a daily quota and run after paid work. Other models are paid with Buzz from your account.
+              </span>
+            </span>
+          </label>
+        )}
 
         {!noNet && (
           <label className={`flex items-start gap-2 rounded-lg border border-line p-3 text-sm ${proxyOk ? '' : 'opacity-60'}`}>

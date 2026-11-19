@@ -19,7 +19,7 @@ import {
   type ModelListEntry,
 } from '../../providers/models';
 import { Spinner } from '../../components/common';
-import { FlowStatusDot } from '../settings/FlowSidecarStatus';
+import { BING_SPEC, FLOW_SPEC, SidecarStatusDot } from '../settings/FlowSidecarStatus';
 
 const PER_PROVIDER = 60;
 
@@ -107,7 +107,8 @@ export function ModelPicker({ project, kind, slot = 'generate', compact }: { pro
         title={kind === 'chat' ? 'Chat model' : `${SLOT_LABEL[slot][0].toUpperCase()}${SLOT_LABEL[slot].slice(1)} model`}
       >
         <Icon size={13} className="shrink-0 text-muted" />
-        {kind === 'image' && (hasOwn ? current : fallback?.conn)?.imageApi === 'flow-sidecar' && <FlowStatusDot />}
+        {kind === 'image' && (hasOwn ? current : fallback?.conn)?.imageApi === 'flow-sidecar' && <SidecarStatusDot spec={FLOW_SPEC} label="Google Flow" />}
+        {kind === 'image' && (hasOwn ? current : fallback?.conn)?.imageApi === 'bing-sidecar' && <SidecarStatusDot spec={BING_SPEC} label="Bing Image Creator" />}
         <span className={`truncate ${!hasOwn && isSlot && !warn ? 'text-muted' : ''}`}>{label}</span>
         {hasOwn && !compact && <span className="hidden truncate text-zinc-600 xl:inline">· {current!.name}</span>}
         <ChevronDown size={12} className="shrink-0 text-muted" />
