@@ -268,6 +268,6 @@ File names look like `2026-11-17_151237_txt2img_a-blue-owl_jvihcqe2.png`.
 
 ## License
 
-Copyright © 2026 thatBiologyStudent. Licensed under [Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)](https://creativecommons.org/licenses/by-sa/4.0/).
+Copyright © 2026 thatBiologyStudent. Licensed under the [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html) (AGPL-3.0). The full text is in [LICENSE](LICENSE).
 
-You may share and adapt this project, also commercially, as long as you give credit (name and a link to this repository), link the license, mark what you changed, and release your changes under the same license. The full text is in [LICENSE](LICENSE).
+You may use, change and share this project, also commercially. If you distribute it or a modified version (for example as a download or a desktop app), or run a modified version as a website or online service, you must release your full source code under the same license and keep the copyright notices.
