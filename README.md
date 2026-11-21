@@ -67,6 +67,8 @@ Without any provider you can still try everything with the **Demo (offline)** pr
 
 **Windows:** double-click **`start.bat`**. On the first run it installs dependencies, then it starts the app on http://localhost:5178 and opens your browser.
 
+**Updates:** each time you start it, `start.bat` checks GitHub for a newer version and asks *Update now? [Y,N]* (it says yes on its own after 15 seconds). A cloned copy is updated with `git pull` (skipped if you changed files yourself); a downloaded zip copy gets the latest files from GitHub copied over it. Your projects, images and settings live in the browser, so updating never touches them. To skip the check, set the environment variable `NO_UPDATE_CHECK=1`. Copies from before this updater existed need one manual update first.
+
 **Any OS:**
 
 ```bash
