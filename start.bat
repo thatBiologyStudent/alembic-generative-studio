@@ -10,6 +10,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem Check GitHub for a newer version (set NO_UPDATE_CHECK=1 to skip). Exit code 10 = updated: restart
+rem so the new version of this script runs. Keep both lines in one block: cmd reads the whole block
+rem before running it, so the update can safely replace this file.
+(
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\update.ps1" -Repo thatBiologyStudent/alembic-generative-studio
+  if errorlevel 10 ( set "NO_UPDATE_CHECK=1" & "%~f0" & exit /b )
+)
+
 if not exist node_modules (
   echo Installing dependencies, this only happens once...
   call npm install
