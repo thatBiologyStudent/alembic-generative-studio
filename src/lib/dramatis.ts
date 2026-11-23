@@ -27,7 +27,7 @@ interface DramatisState {
 
 export const useDramatis = create<DramatisState>(() => ({}));
 
-const launchedFromDramatis = (() => {
+export const launchedFromDramatis = (() => {
   try {
     return new URLSearchParams(window.location.search).get('from') === 'dramatis' && !!window.opener;
   } catch {
@@ -51,6 +51,7 @@ export function initDramatisBridge() {
     if (e.source !== window.opener || !isAllowedOrigin(e.origin)) return;
     const d = e.data as Record<string, unknown> | null;
     if (!d || d.type !== 'dramatis:portrait-request') return;
+    if (useDramatis.getState().session) return; // already answered; ignore repeats
     if (typeof d.characterName !== 'string' || typeof d.prompt !== 'string') return;
     const session: DramatisSession = {
       origin: e.origin,
@@ -61,7 +62,14 @@ export function initDramatisBridge() {
     useDramatis.setState({ session, pending: session });
   });
   // Nothing private in this message, so any opener may hear it; the reply is origin-checked above.
-  window.opener.postMessage({ type: 'alembic:ready' }, '*');
+  // Repeat it until the request arrives, in case Dramatis missed the first one while we loaded.
+  let tries = 0;
+  const sayReady = () => {
+    if (useDramatis.getState().session || !window.opener || window.opener.closed || tries++ > 20) return;
+    window.opener.postMessage({ type: 'alembic:ready' }, '*');
+    setTimeout(sayReady, 1000);
+  };
+  sayReady();
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {

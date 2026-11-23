@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { MonitorDown, RefreshCw, X } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { create } from 'zustand';
+import { launchedFromDramatis } from '../lib/dramatis';
+import { useUI } from '../store/ui';
 
 /** Chrome/Edge's install prompt event (not in the DOM typings). */
 interface BeforeInstallPromptEvent extends Event {
@@ -51,14 +53,21 @@ export function PwaUpdatePrompt() {
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(_url, reg) {
+      if (!reg) return;
+      // A portrait window from Dramatis must run the current version: check right away
+      if (launchedFromDramatis) void reg.update().catch(() => {});
       // installed apps can stay open for days: look for a new version every hour
-      if (reg) setInterval(() => void reg.update().catch(() => {}), HOUR);
+      setInterval(() => void reg.update().catch(() => {}), HOUR);
     },
   });
 
   useEffect(() => {
     if (needRefresh) setDismissed(false);
-  }, [needRefresh]);
+    // Nothing is running yet in a fresh portrait window, so update straight away.
+    // The window keeps its link to Dramatis through the reload.
+    const generating = Object.values(useUI.getState().busy).some(Boolean) || useUI.getState().jobs.length > 0;
+    if (needRefresh && launchedFromDramatis && !generating) void updateServiceWorker(true);
+  }, [needRefresh, updateServiceWorker]);
 
   if (!needRefresh || dismissed) return null;
   return (
