@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Download, Heart, ImagePlus, MessageSquarePlus, Trash2, Upload, X } from 'lucide-react';
+import { Download, Heart, ImagePlus, MessageSquarePlus, Send, Trash2, Upload, X } from 'lucide-react';
+import { pickForDramatis, useDramatis } from '../../lib/dramatis';
 import { db, type ImageRecord, type Project } from '../../db/schema';
 import { deleteImage, saveImage } from '../../db/repo';
 import { Spinner, useBlobUrl } from '../../components/common';
@@ -123,6 +124,7 @@ const Tile = memo(function Tile({ img }: { img: ImageRecord }) {
   const url = useBlobUrl(img.thumb);
   const { setViewing, attach, toast } = useUI.getState();
   const stop = (e: React.MouseEvent) => e.stopPropagation();
+  const dramatis = useDramatis((s) => s.session);
   return (
     <div
       className="group checker relative aspect-square cursor-pointer overflow-hidden rounded-lg border border-line hover:border-accent"
@@ -148,6 +150,11 @@ const Tile = memo(function Tile({ img }: { img: ImageRecord }) {
       )}
       <div className="absolute right-1.5 bottom-1.5 left-1.5 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
         <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-200">{img.prompt}</span>
+        {dramatis && (
+          <IconBtn title="Use in Dramatis" onClick={(e) => (stop(e), void pickForDramatis(img.blob))}>
+            <Send size={13} />
+          </IconBtn>
+        )}
         <IconBtn title="Use in chat" onClick={(e) => (stop(e), attach(img.projectId, img.id), toast('Attached to chat', 'info'))}>
           <MessageSquarePlus size={13} />
         </IconBtn>

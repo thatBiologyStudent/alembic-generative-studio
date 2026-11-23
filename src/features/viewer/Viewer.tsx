@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ChevronLeft, ChevronRight, Download, ExternalLink, Heart, LayoutGrid, MessageSquarePlus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, ExternalLink, Heart, LayoutGrid, MessageSquarePlus, Send, Trash2 } from 'lucide-react';
+import { pickForDramatis, useDramatis } from '../../lib/dramatis';
 import { db, type Project } from '../../db/schema';
 import { deleteImage } from '../../db/repo';
 import { useBlobUrl } from '../../components/common';
@@ -19,6 +20,7 @@ export function Viewer({ project, imageId }: { project: Project; imageId: string
   const url = useBlobUrl(img?.blob);
   const { setViewing, attach, toast } = useUI.getState();
   const [tab, setTab] = useState<ActionTab>('info');
+  const dramatis = useDramatis((s) => s.session);
   const [brush, setBrush] = useState(48);
   const [erase, setErase] = useState(false);
   const mask = useRef<MaskHandle>(null);
@@ -93,6 +95,15 @@ export function Viewer({ project, imageId }: { project: Project; imageId: string
           {img.seed !== undefined ? ` · seed ${img.seed}` : ''}
         </span>
         <div className="flex-1" />
+        {dramatis && (
+          <button
+            className="btn-primary mr-1 shrink-0 px-2.5 py-1 text-xs whitespace-nowrap"
+            title={`Send this picture to ${dramatis.characterName} in Dramatis`}
+            onClick={() => void pickForDramatis(img.blob)}
+          >
+            <Send size={13} /> Use in Dramatis
+          </button>
+        )}
         <button className="btn-ghost" title="Use in chat" onClick={() => (attach(project.id, img.id), toast('Attached to chat', 'info'))}>
           <MessageSquarePlus size={15} />
         </button>

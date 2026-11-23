@@ -12,8 +12,11 @@ import { SyncDialogHost } from './features/sync/SyncDialog';
 import { SiteAnalytics } from './components/SiteAnalytics';
 import { ensureDemoConnections } from './features/settings/bootstrap';
 import { BASE } from './lib/base';
+import { DramatisBridge } from './components/DramatisBridge';
+import { initDramatisBridge } from './lib/dramatis';
 
 void ensureDemoConnections();
+initDramatisBridge();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -29,6 +32,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <PwaUpdatePrompt />
       <SyncDialogHost />
       <SiteAnalytics />
+      <DramatisBridge />
     </BrowserRouter>
   </React.StrictMode>,
 );
