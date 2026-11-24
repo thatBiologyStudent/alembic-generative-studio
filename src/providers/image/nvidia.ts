@@ -117,6 +117,10 @@ export class NvidiaImageBackend implements ImageBackend {
         if (!isImage || /world|3d|video/.test(generalText)) continue;
         const publisher = r.labels?.find((l) => l.key === 'publisher')?.values?.[0];
         if (!publisher || r.attributes?.some((a) => a.key === 'AVAILABLE' && a.value === 'false')) continue;
+        // The catalog also lists models NVIDIA doesn't host (download / self-host only, or partner endpoints such as
+        // Together): their invoke URL answers 404. Those have no API calls at all, so keep only models in use.
+        const calls = Number(r.attributes?.find((a) => a.key === 'last_month_api_invocation_count' || a.key === 'lastMonthApiInvocationCount')?.value ?? NaN);
+        if (calls === 0) continue;
         const id = `${publisher}/${r.name.replace(/_/g, '.')}`;
         if (seen.has(id)) continue;
         seen.add(id);
@@ -183,6 +187,10 @@ export class NvidiaImageBackend implements ImageBackend {
       try {
         j = await apiJson<Answer>(via(this.conn, `${this.base}/genai/${model}`), { method: 'POST', headers: this.headers(), body: JSON.stringify(sent), signal });
       } catch (e) {
+        if (e instanceof ApiError && e.status === 404)
+          throw new Error(
+            `NVIDIA does not host ${model} on its API (404). Some catalog models can only be downloaded and run yourself, or are offered through partners. Pick another model, e.g. FLUX.1 schnell, FLUX.1 dev or FLUX.2 klein, and refresh the model list.`,
+          );
         const extra = extraForbidden(e).filter((f) => f in sent);
         if (!extra.length || attempt >= 3) throw e;
         for (const f of extra) skip.add(f); // drop what this model doesn't take and try again

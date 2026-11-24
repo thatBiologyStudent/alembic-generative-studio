@@ -8,7 +8,7 @@ import { getLLM } from './llm';
 export type ModelKind = 'chat' | 'image';
 
 /** bump when the stored model info format changes, so old caches are refetched */
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5; // 5: NVIDIA drops catalog models it does not host
 /** cached model lists are refreshed after this long (the old list is kept if the refresh fails) */
 const MAX_AGE = 24 * 60 * 60 * 1000;
 
