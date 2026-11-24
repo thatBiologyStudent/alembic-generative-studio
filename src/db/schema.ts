@@ -1,3 +1,4 @@
+import type { KeySettings } from '../lib/chromaKey';
 import Dexie, { type EntityTable } from 'dexie';
 
 export interface GenDefaults {
@@ -13,7 +14,25 @@ export interface GenDefaults {
   verify?: boolean;
   /** max regeneration rounds per request when the check fails (cost guard) */
   maxRetries?: number;
+  /** sprite mode: generate on a solid background and cut it out */
+  sprite?: SpriteSettings;
 }
+
+export type SpriteMode = 'manual' | 'same' | 'auto';
+
+export interface SpriteSettings {
+  enabled: boolean;
+  /** background colour asked for in the prompt and keyed out, #rrggbb */
+  color: string;
+  /** manual = tune every image; same = tune the first, reuse for the rest; auto = sliders set automatically */
+  mode: SpriteMode;
+  /** auto mode: let the chat model look at the cut-out and correct it (up to 2 rounds, costs vision calls) */
+  vision?: boolean;
+  /** same mode: the settings tuned on the first image */
+  locked?: KeySettings;
+}
+
+export const DEFAULT_SPRITE: SpriteSettings = { enabled: false, color: '#00ff00', mode: 'auto', vision: false };
 
 export const verifyEnabled = (d: GenDefaults) => d.verify ?? true;
 export const maxRetries = (d: GenDefaults) => Math.max(0, Math.min(5, d.maxRetries ?? 2));
@@ -74,7 +93,7 @@ export interface Message {
   createdAt: number;
 }
 
-export type ImageOp = 'txt2img' | 'img2img' | 'inpaint' | 'upscale' | 'upload';
+export type ImageOp = 'txt2img' | 'img2img' | 'inpaint' | 'upscale' | 'upload' | 'cutout';
 
 export interface ImageRecord {
   id: string;

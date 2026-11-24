@@ -26,11 +26,22 @@ export async function askVision(
   onText?: (t: string) => void,
   opts?: { maxEdge?: number; signal?: AbortSignal; system?: string },
 ): Promise<string> {
+  const url = await imageDataUrl(imageId, opts?.maxEdge ?? 1280);
+  if (!url) throw new Error('Image not found');
+  return askVisionUrl(project, url, instruction, onText, opts);
+}
+
+/** Same as askVision, for an image that isn't stored (given as a data URL). */
+export async function askVisionUrl(
+  project: Project,
+  url: string,
+  instruction: string,
+  onText?: (t: string) => void,
+  opts?: { signal?: AbortSignal; system?: string },
+): Promise<string> {
   const conn = await resolveLLMConn(project);
   const model = project.llmModel || conn.chatModels?.[0];
   if (!model) throw new Error(`Choose a model for ${conn.name} in the model picker.`);
-  const url = await imageDataUrl(imageId, opts?.maxEdge ?? 1280);
-  if (!url) throw new Error('Image not found');
   let acc = '';
   const res = await getLLM(conn).chat({
     model,

@@ -5,6 +5,7 @@ import { useUI } from '../store/ui';
 import { runImageOp } from './generate';
 import { autoSave } from '../lib/output';
 import { askVision } from './vision';
+import { afterGenerate } from './sprite';
 
 export interface CheckResult {
   ok: boolean;
@@ -148,6 +149,7 @@ export async function generateChecked(
   }
   // nothing passed: still hand back the latest attempt so the user sees something
   const images = good.length ? good : rejected.slice(-count);
+  if (checked) afterGenerate(project.id, images.filter((i) => i.params?.sprite));
   return { images, rejected: rejected.filter((r) => !images.includes(r)), retries, summary: summarize(count, good, rejected, retries, lastIssues, skipped, checked) };
 }
 

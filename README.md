@@ -10,7 +10,7 @@
   <a href="https://thatbio.vercel.app/tools/alembic/"><img src="https://img.shields.io/badge/Try_here-%E2%86%92-b8742a?style=for-the-badge" alt="Try here"></a>
 </p>
 
-Alembic is a web app where you chat with an LLM that writes prompts, generates images, **looks at the results** and iterates until they match what you asked for. Any image can be opened full size and reworked: inpaint, img2img, variations, extract a reusable character prompt, describe, upscale.
+Alembic is a web app where you chat with an LLM that writes prompts, generates images, **looks at the results** and iterates until they match what you asked for. Any image can be opened full size and reworked: inpaint, img2img, variations, remove the background, extract a reusable character prompt, describe, upscale.
 
 You bring your own API keys (OpenAI, Claude, Gemini, OpenRouter, NanoGPT, ArliAI, …) or point it at local servers (Ollama, AUTOMATIC1111 / Forge, SD.Next, ComfyUI). Everything is stored **in your browser** (IndexedDB): projects, chats, images and keys. There is no account and no database server.
 
@@ -21,6 +21,7 @@ You bring your own API keys (OpenAI, Claude, Gemini, OpenRouter, NanoGPT, ArliAI
 - **Batches.** Send a list (one character or scene per line) and get one image per line, each checked on its own.
 - **Several providers at once.** Separate model slots for chat, generate, edit and upscale, each from any provider, with search and favourites.
 - **Image actions.** Mask-painting inpaint, img2img and variations, extract character, describe, upscale.
+- **Sprite mode.** Generate on a solid background colour of your choice and get transparent PNGs. The background is removed by hand (sliders, eyedropper, live preview), with settings tuned once for a whole batch, or automatically, optionally checked by a vision model. The same Remove background tab works on any image. It uses the same keying as the standalone [Bios Background Remover](https://github.com/thatBiologyStudent/bios-background-remover).
 - **The assistant asks before switching models.** If the current setup can't do something, it proposes a model and waits for your Allow / Decline.
 - **Saving, backup and sync.** Optional auto-save to a folder or downloads, project export/import, a full backup to one `.zip`, and direct device-to-device sync with a short code.
 - **Runs anywhere.** Locally with one double-click, or as a static site on Vercel, with an optional built-in CORS proxy. The hosted version installs as an app (PWA).

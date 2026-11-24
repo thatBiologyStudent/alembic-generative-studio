@@ -11,6 +11,7 @@ import {
   MessageSquarePlus,
   RefreshCcw,
   Save,
+  Scissors,
   Sparkles,
   UserRound,
   Wand2,
@@ -31,8 +32,9 @@ import { Spinner } from '../../components/common';
 import { useUI } from '../../store/ui';
 import { Thumb } from '../chat/MessageView';
 import type { MaskHandle } from './MaskCanvas';
+import { CutoutTab } from './Cutout';
 
-export type ActionTab = 'info' | 'edit' | 'img2img' | 'character' | 'describe' | 'upscale';
+export type ActionTab = 'info' | 'edit' | 'img2img' | 'cutout' | 'character' | 'describe' | 'upscale';
 
 interface Props {
   project: Project;
@@ -57,6 +59,7 @@ const TABS: { id: ActionTab; label: string; icon: ReactNode }[] = [
   { id: 'info', label: 'Info', icon: <Info size={14} /> },
   { id: 'edit', label: 'Edit / Inpaint', icon: <Brush size={14} /> },
   { id: 'img2img', label: 'img2img', icon: <Layers size={14} /> },
+  { id: 'cutout', label: 'Remove background', icon: <Scissors size={14} /> },
   { id: 'character', label: 'Extract character', icon: <UserRound size={14} /> },
   { id: 'describe', label: 'Describe', icon: <FileText size={14} /> },
   { id: 'upscale', label: 'Upscale', icon: <Maximize2 size={14} /> },
@@ -101,6 +104,7 @@ export function ActionsPanel(props: Props) {
         {tab === 'info' && <InfoTab {...props} caps={caps} />}
         {tab === 'edit' && <EditTab {...props} caps={editCaps} />}
         {tab === 'img2img' && <Img2ImgTab {...props} caps={editCaps} />}
+        {tab === 'cutout' && <CutoutTab project={project} image={props.image} />}
         {tab === 'character' && <CharacterTab {...props} caps={caps} />}
         {tab === 'describe' && <DescribeTab {...props} caps={caps} />}
         {tab === 'upscale' && <UpscaleTab {...props} caps={caps} canUpscale={!!upTarget} />}

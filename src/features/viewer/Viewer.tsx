@@ -9,6 +9,8 @@ import { downloadBlob, extFromType } from '../../lib/image';
 import { useUI } from '../../store/ui';
 import { ActionsPanel, type ActionTab } from './ActionsPanel';
 import { MaskCanvas, type MaskHandle } from './MaskCanvas';
+import { CutoutStage } from './Cutout';
+import { useSprite } from '../../agent/sprite';
 
 export function Viewer({ project, imageId }: { project: Project; imageId: string }) {
   const img = useLiveQuery(() => db.images.get(imageId), [imageId], null);
@@ -26,6 +28,14 @@ export function Viewer({ project, imageId }: { project: Project; imageId: string
   const mask = useRef<MaskHandle>(null);
   const stage = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState({ w: 0, h: 0 });
+  // sprite mode opens new images straight in the Remove background tab
+  const openFor = useSprite((s) => s.openFor);
+  useEffect(() => {
+    if (openFor && openFor === imageId) {
+      setTab('cutout');
+      useSprite.setState({ openFor: undefined });
+    }
+  }, [openFor, imageId]);
 
   const idx = ids?.indexOf(imageId) ?? -1;
   const go = (d: number) => {
@@ -133,7 +143,11 @@ export function Viewer({ project, imageId }: { project: Project; imageId: string
       <div ref={stage} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#09090b]">
         {url && fit.w > 0 && (
           <div className="checker relative shadow-2xl" style={{ width: fit.w, height: fit.h }}>
-            <img src={url} alt={img.prompt ?? ''} className="absolute inset-0 h-full w-full select-none" draggable={false} />
+            {tab === 'cutout' ? (
+              <CutoutStage image={img} />
+            ) : (
+              <img src={url} alt={img.prompt ?? ''} className="absolute inset-0 h-full w-full select-none" draggable={false} />
+            )}
             {tab === 'edit' && <MaskCanvas key={img.id} ref={mask} width={img.width} height={img.height} brush={brush} erase={erase} />}
           </div>
         )}

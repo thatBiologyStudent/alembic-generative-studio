@@ -5,6 +5,7 @@ import { fetchModelList } from '../providers/models';
 import { autoSave } from '../lib/output';
 import type { GenParams, ImageBackend } from '../providers/image/types';
 import { useUI } from '../store/ui';
+import { afterGenerate, spriteOf, withSpriteClause } from './sprite';
 
 export interface SlotTarget {
   conn: Connection;
@@ -122,6 +123,12 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
       if (params.negative && d.negative && op.params.negative && !op.params.negative.includes(d.negative)) {
         params.negative = `${op.params.negative}, ${d.negative}`;
       }
+      const sprite = spriteOf(project);
+      if (sprite.enabled) {
+        params.prompt = withSpriteClause(params.prompt, project, backend.capabilities.promptStyle);
+        if (backend.capabilities.negative && !params.negative?.includes('gradient background'))
+          params.negative = [params.negative, 'gradient background, scenery, cast shadow'].filter(Boolean).join(', ');
+      }
       const imgs = await backend.txt2img(params, ctx);
       for (const im of imgs) {
         saved.push(
@@ -132,10 +139,19 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
             seed: im.seed,
             backend: conn.name,
             model,
-            params: { width: params.width, height: params.height, steps: params.steps, cfg: params.cfg, sampler: params.sampler },
+            params: {
+              width: params.width,
+              height: params.height,
+              steps: params.steps,
+              cfg: params.cfg,
+              sampler: params.sampler,
+              ...(sprite.enabled ? { sprite: sprite.color } : {}),
+            },
           }),
         );
       }
+      // sprite mode: cut out the background (checked requests do this once the check has picked the final images)
+      if (sprite.enabled && !opts?.heldForCheck) afterGenerate(project.id, saved);
     } else if (op.kind === 'img2img') {
       const denoise = op.denoise ?? d.denoise;
       const imgs = await backend.img2img(

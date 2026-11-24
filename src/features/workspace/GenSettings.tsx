@@ -6,6 +6,7 @@ import { getImageBackend } from '../../providers/image';
 import type { BackendCapabilities } from '../../providers/image/types';
 import { DraftInput, DraftTextarea, Field } from '../../components/common';
 import { presetOf, sizeFor } from '../../lib/size';
+import { SpriteSection } from './SpriteSection';
 
 const ASPECTS = ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '21:9'];
 
@@ -141,6 +142,7 @@ export function GenSettings({ project, onClose }: { project: Project; onClose: (
             </label>
           )}
         </div>
+        <SpriteSection project={project} />
         <Field label="Project brief (given to the assistant)">
           <DraftTextarea
             className="input h-16"
