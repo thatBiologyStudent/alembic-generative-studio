@@ -8,6 +8,7 @@ import { BingSidecarBackend } from './bingSidecar';
 import { CloudflareImageBackend } from './cloudflare';
 import { CivitaiImageBackend } from './civitai';
 import { NvidiaImageBackend } from './nvidia';
+import { OpenArtImageBackend } from './openart';
 import { GeminiImageBackend } from './gemini';
 import { OpenAIImagesBackend } from './openaiImages';
 import type { ImageBackend } from './types';
@@ -40,6 +41,8 @@ export function getImageBackend(c: Connection): ImageBackend {
       return new CivitaiImageBackend(conn);
     case 'nvidia':
       return new NvidiaImageBackend(conn);
+    case 'openart':
+      return new OpenArtImageBackend(conn);
     default:
       throw new Error(`${conn.name} is not set up for images`);
   }

@@ -122,7 +122,7 @@ Add as many providers as you like under **Providers** (the gear icon). Each one 
 |---|---|
 | Free | Cloudflare Workers AI (chat + images, see [below](#free-providers)), NVIDIA NIM (chat + images), CivitAI (images, free tier + Buzz), Bing Image Creator (via the [Bing Image Sidecar extension](https://github.com/thatBiologyStudent/bing-image-sidecar-orchestrator)) |
 | Cloud | OpenAI (chat + images), Anthropic, Google Gemini (chat + Gemini image / Imagen), xAI (chat + images), Mistral, DeepSeek, Groq, Together, DeepInfra (chat + images) |
-| Aggregators & subscriptions | OpenRouter (chat + images), NanoGPT (chat + images), LiteRouter (chat + images), Featherless, ArliAI, OpenCode Go, Command Code, Chutes, Requesty |
+| Aggregators & subscriptions | OpenRouter (chat + images), NanoGPT (chat + images), OpenArt (images, sign in with your account, see [below](#openart)), LiteRouter (chat + images), Featherless, ArliAI, OpenCode Go, Command Code, Chutes, Requesty |
 | Local | Ollama, LM Studio, AUTOMATIC1111 / Forge, SD.Next, ComfyUI |
 | Other | Custom OpenAI-compatible, Google Flow (via the [Flow Sidecar extension](https://github.com/thatBiologyStudent/flow-sidecar-orchestrator), see [below](#google-flow-flow-sidecar-extension)), Demo (offline) |
 
@@ -204,6 +204,15 @@ Alembic can generate and edit images in **Google Flow** through the [Flow Sideca
 What it supports: text-to-image and edits (the source image is sent to Flow as a reference; no masks), aspect ratios 16:9, 4:3, 1:1, 3:4 and 9:16 (others map to the nearest), up to 4 images per request (more are split into several requests), output about 1K. A generation takes roughly 20–120 seconds and only one runs at a time; if Flow is busy, Alembic waits and retries.
 
 The extension only connects on `http://localhost:5178`, `http://127.0.0.1:5178` and `https://thatbio.vercel.app`. For another address, add it to `content_scripts[1].matches` in the extension's `manifest.json` and reload the extension. If the extension is updated or reloaded, refresh the Alembic page.
+
+### OpenArt
+
+**OpenArt** (images) connects through OpenArt's MCP server (`https://mcp.openart.ai/mcp`) and uses your OpenArt credits. There is no API key: save the provider, then click **Sign in with OpenArt** and log in in the window that opens. Alembic registers itself with OpenArt automatically (OAuth with PKCE) and refreshes the sign-in on its own.
+
+- It needs **Route through proxy** (on by default), so it works with `start.bat` locally and on a Vercel deployment, not from a static host. OpenArt does not accept requests straight from a browser.
+- The sign-in is kept only in that browser. It is never put in backups or sent by device sync, so sign in once on each device. **Sign out** revokes it.
+- OpenArt does not document its MCP tools, so Alembic picks the generate, edit, upscale, model-list and status tools by name and fills them from their input schemas. **Show available tools** in the provider dialog lists what your account exposes; **Copy as JSON** copies it for bug reports.
+- OpenArt runs other companies' models, and each vendor applies its own moderation. A `VENDOR_REJECTED` error means that vendor refused the prompt. Rephrase it without franchise or character names, or pick another model.
 
 ### Free providers
 

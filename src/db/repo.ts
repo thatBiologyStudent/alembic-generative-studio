@@ -97,6 +97,7 @@ export async function saveConnection(c: Connection) {
 
 export async function deleteConnection(id: string) {
   await db.connections.delete(id);
+  await db.settings.delete(`oauth:${id}`); // sign-in tokens of an OAuth provider (OpenArt)
   for (const k of ['lastChat', 'lastImage']) if ((await getSetting<ModelRef>(k))?.connId === id) await setSetting(k, undefined);
   const fav = await getSetting<{ chat: string[]; image: string[] }>('favorites');
   if (fav) {

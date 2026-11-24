@@ -11,6 +11,7 @@ import { checkProxy } from '../../lib/http';
 import { uid } from '../../lib/id';
 import { BING_SPEC, FLOW_SPEC, SidecarStatus } from './FlowSidecarStatus';
 import { cloudflareBase } from '../../providers/image/cloudflare';
+import { OAuthAccount } from './OAuthAccount';
 
 function fromPreset(p: Preset, proxyOk: boolean): Connection {
   const pageIsLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -52,6 +53,8 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
   const isFlow = c.imageApi === 'flow-sidecar';
   const isBing = c.imageApi === 'bing-sidecar';
   const isCloudflare = c.preset === 'cloudflare';
+  // OAuth (MCP) providers: sign in instead of an API key
+  const isOAuth = c.imageApi === 'openart' && !c.chatApi;
   // providers without a URL or key (Demo, the browser-extension providers)
   const noNet = c.preset === 'demo' || isFlow || isBing || c.preset === 'flow-sidecar' || c.preset === 'bing-sidecar';
   const sidecar = isFlow ? FLOW_SPEC : isBing ? BING_SPEC : undefined;
@@ -122,12 +125,13 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
             </Field>
           )}
           {!noNet && !isCloudflare && (
-            <Field label="Base URL">
+            <Field label={isOAuth ? 'MCP server URL' : 'Base URL'}>
               <input className="input" value={c.baseUrl} onChange={(e) => set({ baseUrl: e.target.value })} placeholder={preset.baseUrl} />
             </Field>
           )}
         </div>
-        {!noNet && (
+        {isOAuth && <OAuthAccount conn={c} current={current} proxyOk={proxyOk} />}
+        {!noNet && !isOAuth && (
           <Field
             label={preset.separateImageKey && c.chatApi ? 'Chat / text API key' : preset.keyRequired ? 'API key' : 'API key (optional)'}
             hint={
@@ -181,7 +185,7 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
                     </option>
                   ))}
                 </select>
-                {c.imageApi !== 'demo' && !noNet && !isCloudflare && (
+                {c.imageApi !== 'demo' && !noNet && !isCloudflare && !isOAuth && (
                   <Field label="Image base URL (if different)">
                     <input className="input mb-2" value={c.imageBaseUrl ?? ''} placeholder={c.baseUrl} onChange={(e) => set({ imageBaseUrl: e.target.value || undefined })} />
                   </Field>

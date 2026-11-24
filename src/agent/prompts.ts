@@ -46,6 +46,12 @@ export function systemPrompt(
         "This backend is NVIDIA NIM's free hosted FLUX.1 models (about 40 requests per minute). Sizes are fixed: the closest of 1:1, 4:7, 7:4, 7:9, 9:7, 2:3 and 3:2 is used. " +
           'Edits use FLUX.1 Kontext: describe the change in plain words; masks are not supported. Keep image counts low to stay within the rate limit.',
       );
+    if (conn.imageApi === 'openart')
+      lines.push(
+        "This backend is OpenArt (through its MCP server), paid with the user's OpenArt credits; it hosts many vendors' models. " +
+          'Write natural-language prompts. Each model vendor moderates prompts itself: if a generation is refused, rephrase without franchise or character names and make characters clearly adult, or suggest the user pick another model. ' +
+          'Keep image counts low to save credits.',
+      );
     if (conn.imageApi === 'civitai')
       lines.push(
         'This backend is CivitAI with community checkpoints (SD 1.5, SDXL/Pony/Illustrious, Flux.1). For SD 1.5 and SDXL-based models write comma-separated tags; ' +
