@@ -5,7 +5,7 @@ import { fetchModelList } from '../providers/models';
 import { autoSave } from '../lib/output';
 import type { GenParams, ImageBackend } from '../providers/image/types';
 import { useUI } from '../store/ui';
-import { afterGenerate, spriteOf, withSpriteClause } from './sprite';
+import { afterGenerate, spriteNegative, spriteOf, withSpriteClause } from './sprite';
 
 export interface SlotTarget {
   conn: Connection;
@@ -127,7 +127,7 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
       if (sprite.enabled) {
         params.prompt = withSpriteClause(params.prompt, project, backend.capabilities.promptStyle);
         if (backend.capabilities.negative && !params.negative?.includes('gradient background'))
-          params.negative = [params.negative, 'gradient background, scenery, cast shadow'].filter(Boolean).join(', ');
+          params.negative = [params.negative, spriteNegative(sprite.color)].filter(Boolean).join(', ');
       }
       const imgs = await backend.txt2img(params, ctx);
       for (const im of imgs) {

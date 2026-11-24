@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { DEFAULT_SPRITE, type Project, type SpriteMode, type SpriteSettings } from '../../db/schema';
 import { updateProject } from '../../db/repo';
-import { SPRITE_COLORS, spriteOf } from '../../agent/sprite';
+import { colourName, nearColours, orList, SPRITE_COLORS, spriteOf } from '../../agent/sprite';
 
 const MODES: { id: SpriteMode; label: string; hint: string }[] = [
   { id: 'manual', label: 'Manual', hint: 'Every new image opens in the Remove background tab. Set the sliders, save, and the next one opens.' },
@@ -56,7 +56,15 @@ export function SpriteSection({ project }: { project: Project }) {
                 <span className="font-mono">{s.color}</span>
               </label>
             </div>
-            <p className="mt-1 text-[11px] text-zinc-600">Pick a colour your subject doesn't contain. Bright green or magenta usually come out cleanest.</p>
+            <p className="mt-1 text-[11px] leading-snug text-muted">
+              The prompt asks for a plain <span className="text-zinc-300">{colourName(s.color)}</span> background and tells the model to keep{' '}
+              <span className="text-zinc-300">{orList(nearColours(s.color), 'and')}</span> off the subject (hair, clothing, accessories), so nothing on it
+              gets removed with the background.
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-600">
+              Pick a colour your subject shouldn't have: if your prompt asks for one of these colours, the two instructions conflict. Bright green or
+              magenta usually come out cleanest.
+            </p>
           </div>
           <div>
             <span className="label">Background removal</span>

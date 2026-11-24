@@ -38,13 +38,65 @@ export const SPRITE_COLORS: { hex: string; name: string }[] = [
 
 const MARK = 'solid flat';
 
-/** The prompt addition asking for a plain background in the sprite colour. */
+/**
+ * Colour words close to the background colour, which the subject must not use: a teal-haired character on a
+ * green screen loses its hair when the background is keyed out.
+ */
+export function nearColours(hex: string): string[] {
+  const { r, g, b } = hexToRgb(hex);
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
+  const l = (max + min) / 510;
+  const sat = max === min ? 0 : (max - min) / (255 - Math.abs(max + min - 255));
+  if (sat < 0.2 || max - min < 40) {
+    if (l > 0.75) return ['white', 'off-white', 'very light grey'];
+    if (l < 0.25) return ['black', 'very dark grey'];
+    return ['grey', 'silver'];
+  }
+  const d = max - min;
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = (h * 60 + 360) % 360;
+  if (h < 15 || h >= 345) return ['red', 'crimson', 'orange-red'];
+  if (h < 45) return ['orange', 'amber', 'brown-orange'];
+  if (h < 70) return ['yellow', 'gold', 'lime-yellow'];
+  if (h < 165) return ['green', 'lime', 'teal', 'olive'];
+  if (h < 200) return ['cyan', 'teal', 'turquoise'];
+  if (h < 255) return ['blue', 'navy', 'cyan', 'indigo'];
+  if (h < 290) return ['purple', 'violet', 'indigo'];
+  return ['magenta', 'pink', 'purple', 'fuchsia'];
+}
+
+export const orList = (xs: string[], word = 'or') => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} ${word} ${xs[xs.length - 1]}`);
+
+/** A plain colour word for the prompt: image models follow "purple" far better than "#8000ff". */
+export function colourName(hex: string): string {
+  const preset = SPRITE_COLORS.find((c) => c.hex === hex.toLowerCase())?.name;
+  if (preset) return preset;
+  const family = nearColours(hex)[0];
+  if (['white', 'black', 'grey'].includes(family)) return family;
+  const { r, g, b } = hexToRgb(hex);
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
+  const l = (max + min) / 510;
+  if (l > 0.7) return `light ${family}`;
+  if (max < 170) return `dark ${family}`; // olive, navy, maroon: no channel is bright
+  return (max - min) / max > 0.7 ? `bright ${family}` : `muted ${family}`;
+}
+
+/** The prompt addition asking for a plain background in the sprite colour and a subject that contrasts with it. */
 export function spriteClause(color: string, style: 'tags' | 'natural' = 'natural'): string {
-  const name = SPRITE_COLORS.find((c) => c.hex === color.toLowerCase())?.name;
-  const label = name ? `${name} (${color})` : color;
+  const label = `${colourName(color)} (${color.toLowerCase()})`;
+  const avoid = nearColours(color);
   return style === 'tags'
-    ? `simple background, ${MARK} ${label} background, isolated character, no shadow`
-    : `isolated on a ${MARK} ${label} background, one uniform background colour with no gradient, no shadows on the ground, no scenery`;
+    ? `simple background, ${MARK} ${label} background, isolated character, no shadow, character in colours contrasting with the background, no ${avoid[0]} on the character`
+    : `isolated on a ${MARK} ${label} background, one uniform background colour with no gradient, no shadows on the ground, no scenery. ` +
+        `The subject must contrast clearly with the background: no ${orList(avoid)} anywhere on the subject, its hair, clothing, accessories or effects.`;
+}
+
+/** Negative-prompt terms for backends that take one (tag-style models follow these better than "no …" in the prompt). */
+export function spriteNegative(color: string): string {
+  const avoid = nearColours(color).slice(0, 3);
+  return ['gradient background', 'scenery', 'cast shadow', ...avoid.flatMap((c) => [`${c} hair`, `${c} clothes`])].join(', ');
 }
 
 /** Adds the sprite clause unless the prompt already has one (rerolls reuse the saved prompt). */
