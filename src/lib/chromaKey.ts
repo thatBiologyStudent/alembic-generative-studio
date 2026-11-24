@@ -135,15 +135,25 @@ function analyse(src: ImageData, color: RGB): Analysis {
   return a;
 }
 
-/** Enclosed background-coloured areas (not reached from the border) big enough to be background, not detail. */
-function enclosedHoles(src: ImageData, a: Analysis, limit: number): Uint8Array {
+/**
+ * Background-coloured pockets the border fill can't reach: between an arm and the body, or between fingers and
+ * hair, where the way out is a 1–2 px channel of blended pixels. Large pockets count when they are clearly the
+ * background colour; small ones only when they are almost exactly it, so a similar-coloured detail (green eyes on
+ * a green screen) stays. Their blended rims (up to tolerance + feather) are included so they key out cleanly.
+ */
+function enclosedHoles(src: ImageData, a: Analysis, limit: number, soft: number): Uint8Array {
   const { width: w, height: h } = src;
   const n = w * h;
   const hole = new Uint8Array(n);
   const seen = new Uint8Array(n);
-  const minArea = Math.max(64, Math.round(n * 0.0015));
+  const largeArea = Math.max(64, Math.round(n * 0.0015));
+  const tight = Math.max(14, Math.min(30, limit * 0.35));
   const stack: number[] = [];
   const comp: number[] = [];
+  const nb = (i: number) => {
+    const x = i % w;
+    return [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i >= w ? i - w : -1, i < n - w ? i + w : -1];
+  };
   for (let s = 0; s < n; s++) {
     if (seen[s] || a.dist[s] > limit || a.reach[s] <= limit) continue;
     stack.push(s);
@@ -154,15 +164,21 @@ function enclosedHoles(src: ImageData, a: Analysis, limit: number): Uint8Array {
       const i = stack.pop()!;
       comp.push(i);
       sum += a.dist[i];
-      const x = i % w;
-      for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
-        if (j < 0 || j >= n || seen[j] || a.dist[j] > limit || a.reach[j] <= limit) continue;
+      for (const j of nb(i)) {
+        if (j < 0 || seen[j] || a.dist[j] > limit || a.reach[j] <= limit) continue;
         seen[j] = 1;
         stack.push(j);
       }
     }
-    // large and clearly the background colour (on average well inside the tolerance)
-    if (comp.length >= minArea && sum / comp.length <= limit * 0.6) for (const i of comp) hole[i] = 1;
+    const mean = sum / comp.length;
+    const isHole = comp.length >= largeArea ? mean <= limit * 0.6 : comp.length >= 6 && mean <= tight;
+    if (isHole) for (const i of comp) hole[i] = 1;
+  }
+  // take in the blended rim around each pocket (two pixels deep)
+  for (let pass = 0; pass < 2; pass++) {
+    const add: number[] = [];
+    for (let i = 0; i < n; i++) if (hole[i]) for (const j of nb(i)) if (j >= 0 && !hole[j] && a.dist[j] < soft) add.push(j);
+    for (const j of add) hole[j] = 1;
   }
   return hole;
 }
@@ -175,7 +191,7 @@ export function applyKey(src: ImageData, s: KeySettings): ImageData {
   const n = width * height;
   const a = analyse(src, s.color);
   const limit = s.tolerance + s.feather;
-  const holes = s.outsideOnly && s.holes ? enclosedHoles(src, a, Math.max(1, s.tolerance)) : undefined;
+  const holes = s.outsideOnly && s.holes ? enclosedHoles(src, a, Math.max(1, s.tolerance), limit) : undefined;
 
   for (let i = 0; i < n; i++) {
     if (s.outsideOnly && a.reach[i] > limit && !holes?.[i]) continue;
@@ -276,6 +292,8 @@ function chokeAndDefringe(data: Uint8ClampedArray, width: number, height: number
 
 // ---------------- auto mode ----------------
 
+const colourDistance = (p: RGB, q: RGB) => Math.sqrt((p.r - q.r) ** 2 + (p.g - q.g) ** 2 + (p.b - q.b) ** 2);
+
 /** The most common colour along the border, for images whose background colour isn't known. */
 export function borderColor(src: ImageData): RGB {
   const { data, width: w, height: h } = src;
@@ -341,7 +359,10 @@ export function measure(src: ImageData, keyed: ImageData, s: KeySettings): Quali
  * shows background tint, stopping before the cut-out shrinks noticeably.
  */
 export function autoTune(src: ImageData, color?: RGB, base: Partial<KeySettings> = {}): KeySettings {
-  const c = color ?? borderColor(src);
+  // key on the background that was actually generated ("magenta" often comes out as #e808e7, not #ff00ff):
+  // a tighter match keeps skin and other near colours safe
+  const seen = borderColor(src);
+  const c = !color || colourDistance(color, seen) < 90 ? seen : color;
   const a = analyse(src, c);
   const n = src.width * src.height;
   const hist = new Float64Array(444);
@@ -351,9 +372,11 @@ export function autoTune(src: ImageData, color?: RGB, base: Partial<KeySettings>
   for (let t = 0; t < 444; t++) cum[t] = acc += hist[t] / n;
 
   const WINDOW = 20;
+  // past ~140 the fill starts reaching skin and pastel colours on most key colours (light skin is ~225 from magenta)
+  const MAX_TOL = 140;
   const FLAT = 0.003; // under 0.3 % of the image gained over the window = only edge pixels left
   let start = -1;
-  for (let t = 6; t < 220; t++) {
+  for (let t = 6; t < MAX_TOL; t++) {
     if (cum[t] < 0.02) continue; // the background hasn't really started going yet
     if (cum[t + WINDOW] - cum[t] < FLAT) {
       start = t;
@@ -363,7 +386,7 @@ export function autoTune(src: ImageData, color?: RGB, base: Partial<KeySettings>
   if (start < 0) {
     // no clear plateau: take the flattest point
     let best = Infinity;
-    for (let t = 10; t < 200; t++) {
+    for (let t = 10; t < MAX_TOL; t++) {
       const slope = cum[t + WINDOW] - cum[t];
       if (cum[t] > 0.02 && slope < best) (best = slope), (start = t);
     }
@@ -371,9 +394,9 @@ export function autoTune(src: ImageData, color?: RGB, base: Partial<KeySettings>
   }
   // move to the far end of the flat stretch (catches the background's noisy tail), at most +30
   let tol = start;
-  while (tol < start + 30 && cum[tol + 1] - cum[start] < FLAT) tol++;
+  while (tol < start + 30 && tol < MAX_TOL && cum[tol + 1] - cum[start] < FLAT) tol++;
 
-  let s: KeySettings = { ...DEFAULT_KEY, ...base, color: c, tolerance: tol, feather: Math.round(Math.min(40, Math.max(8, tol * 0.4))), choke: 0, defringe: 0 };
+  let s: KeySettings = { ...DEFAULT_KEY, ...base, color: c, tolerance: tol, feather: Math.round(Math.min(24, Math.max(8, tol * 0.3))), choke: 0, defringe: 0 };
   let keyed = applyKey(src, s);
   let q = measure(src, keyed, s);
   const baseRemoved = q.removed;
