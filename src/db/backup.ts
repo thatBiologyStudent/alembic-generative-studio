@@ -17,7 +17,8 @@ interface BackupFile {
 }
 
 /** settings that are caches or machine-specific and should not travel */
-const SKIP_SETTING = (key: string) => key.startsWith('models:') || key === 'outputDir' || key === 'bootstrapped';
+// oauth:<id> holds sign-in tokens: those stay on the device where you signed in (sign in again on another device)
+const SKIP_SETTING = (key: string) => key.startsWith('models:') || key.startsWith('oauth:') || key === 'outputDir' || key === 'bootstrapped';
 
 export async function exportAll(includeKeys: boolean): Promise<Blob> {
   return exportSelection({ projectIds: 'all', providers: true, settings: true, includeKeys });

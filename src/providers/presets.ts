@@ -55,6 +55,19 @@ export const PRESETS: Preset[] = [
       'Images: FLUX.1 schnell and dev in fixed sizes (closest aspect ratio is used); set FLUX.1 Kontext as the Edit model for edits.',
   },
   {
+    id: 'openart',
+    name: 'OpenArt',
+    group: 'Aggregators & subscriptions',
+    baseUrl: 'https://mcp.openart.ai/mcp',
+    imageApi: 'openart',
+    keyRequired: false,
+    note:
+      'Many image models (FLUX, GPT Image, Nano Banana, Seedream, Qwen Image, …) through OpenArt’s MCP server, paid with your OpenArt credits. ' +
+      'Save, then “Sign in with OpenArt” — no API key. Needs “Route through proxy” (start.bat locally, or the Vercel deployment). ' +
+      'Each model vendor applies its own moderation, so a prompt one model refuses may work on another.',
+    link: { label: 'OpenArt MCP', url: 'https://openart.ai/mcp/' },
+  },
+  {
     id: 'civitai',
     name: 'CivitAI',
     group: 'Free',
@@ -244,4 +257,5 @@ export const IMAGE_API_LABEL: Record<ImageApi, string> = {
   cloudflare: 'Cloudflare Workers AI',
   civitai: 'CivitAI Orchestration',
   nvidia: 'NVIDIA NIM hosted image models',
+  openart: 'OpenArt (MCP, sign in with your account)',
 };
