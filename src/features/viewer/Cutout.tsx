@@ -7,6 +7,9 @@ import { errMsg } from '../../lib/http';
 import { Spinner } from '../../components/common';
 import { useUI } from '../../store/ui';
 
+// one shared empty list: a new [] on every render makes the store selector loop forever
+const NO_QUEUE: string[] = [];
+
 // decoded pixels of the last few images (decoding a large PNG on every slider move would be slow)
 const pixels = new Map<string, Promise<ImageData>>();
 function pixelsOf(img: ImageRecord): Promise<ImageData> {
@@ -80,10 +83,12 @@ export function CutoutStage({ image }: { image: ImageRecord }) {
 
 function Slider({ label, value, min, max, step, onChange, hint }: { label: string; value: number; min: number; max: number; step: number; onChange: (n: number) => void; hint?: string }) {
   return (
-    <label className="flex items-center gap-2 text-xs text-muted" title={hint}>
-      <span className="w-20 shrink-0">{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(+e.target.value)} className="w-32 accent-violet-500 sm:w-40" />
-      <span className="w-8 text-zinc-300 tabular-nums">{value}</span>
+    <label className="block text-xs text-muted" title={hint}>
+      <span className="flex justify-between">
+        <span>{label}</span>
+        <span className="text-zinc-300 tabular-nums">{value}</span>
+      </span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(+e.target.value)} className="w-full accent-violet-500" />
     </label>
   );
 }
@@ -91,7 +96,7 @@ function Slider({ label, value, min, max, step, onChange, hint }: { label: strin
 /** The Remove background tab: sliders, eyedropper, automatic and vision-checked tuning, save. */
 export function CutoutTab({ project, image }: { project: Project; image: ImageRecord }) {
   const { settings, picking, showOriginal } = useSprite();
-  const queue = useSprite((st) => st.queue[project.id] ?? []);
+  const queue = useSprite((st) => st.queue[project.id] ?? NO_QUEUE);
   const toast = useUI((s) => s.toast);
   const [busy, setBusy] = useState<'' | 'auto' | 'vision' | 'save'>('');
   const [note, setNote] = useState('');
@@ -177,7 +182,7 @@ export function CutoutTab({ project, image }: { project: Project; image: ImageRe
           <Eye size={13} /> Original
         </button>
       </div>
-      <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(200px,100%),1fr))] gap-x-6 gap-y-1.5">
         <Slider label="Tolerance" value={settings.tolerance} min={0} max={255} step={1} onChange={(v) => patch({ tolerance: v })} hint="How different from the background colour a pixel may be and still be removed" />
         <Slider label="Edge feather" value={settings.feather} min={0} max={60} step={1} onChange={(v) => patch({ feather: v })} hint="Soft transition above the tolerance" />
         <Slider label="Edge choke" value={settings.choke} min={0} max={5} step={0.5} onChange={(v) => patch({ choke: v })} hint="Shaves pixels off the cut-out's edge" />
