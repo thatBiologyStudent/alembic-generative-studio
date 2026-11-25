@@ -188,3 +188,33 @@ export function describePrompt(style: 'tags' | 'natural', detail: Detail = 'bala
     .filter(Boolean)
     .join('\n');
 }
+
+const STYLE_DETAIL: Record<Detail, string> = {
+  simple: 'Detail level SIMPLE: the core of the look only (medium and overall style family, e.g. "flat cel-shaded anime illustration"), so it can be applied loosely.',
+  balanced:
+    'Detail level BALANCED: medium and style family, line art (weight, colour), shading and colouring technique, colour palette, lighting style, texture, level of detail and mood.',
+  verbose: [
+    'Detail level VERBOSE: everything that makes this look, so any subject drawn with it looks like it came from the same artist and the same set:',
+    'medium and style family, era or genre influences, line art (weight, colour, taper, consistency), shading (cel, soft, painterly; number of tones, shadow shape and colour), colouring technique, colour palette with precise colour words and saturation,',
+    'lighting style (rim light, glow, contrast), textures and surface rendering (gloss, grain, halftone, paper), edge quality, level of detail and where detail is concentrated, background treatment, post-processing (bloom, chromatic aberration, vignette, film grain), and typical framing.',
+  ].join(' '),
+};
+
+/** Extracts the art style of an image as a reusable prompt; uses the prompt it was made from when known. */
+export function extractStylePrompt(style: 'tags' | 'natural', detail: Detail = 'balanced', source?: { prompt: string; model?: string }) {
+  return [
+    'Analyse the ART STYLE of this image and write a reusable style prompt that makes ANY subject look like it was made in this exact style.',
+    STYLE_DETAIL[detail],
+    'Describe only the style: never the subject, character, species, clothing, objects, pose, setting or story of this image, so the prompt can be added to any other prompt.',
+    'Use descriptive style words, not names of living artists.',
+    source
+      ? `This image was generated from the prompt below${source.model ? ` with the model ${source.model}` : ''}. Its style and quality keywords are what produced this look: keep the ones that are visible in the image (in their exact wording), drop the ones that are not, ignore its subject words, and add what is visible but missing.\nOriginal prompt: ${source.prompt}`
+      : '',
+    style === 'tags'
+      ? `Format: comma-separated Stable Diffusion tags/phrases, most defining first${detail === 'simple' ? ' (about 6–10)' : detail === 'verbose' ? ' (as many as needed)' : ' (about 15–25)'}.`
+      : `Format: natural language${detail === 'simple' ? ', one sentence' : detail === 'verbose' ? ', one dense paragraph' : ', two or three sentences'}, written so it can follow any subject description.`,
+    'Reply with only the style prompt, nothing else.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}

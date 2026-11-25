@@ -22,6 +22,10 @@ export interface GenDefaults {
   refRetries?: number;
   /** character reference mode: how many of the compared features may differ (0 = strict, all must match) */
   refTolerance?: number;
+  /** style preset (id) added to every new txt2img prompt in this project */
+  stylePreset?: string;
+  /** steps / CFG for the img2img and Edit models (their models often want other values than the txt2img model); unset = steps/cfg above */
+  sampling?: Partial<Record<'img2img' | 'edit', { steps: number; cfg: number }>>;
 }
 
 export type SpriteMode = 'manual' | 'same' | 'auto';
@@ -42,6 +46,12 @@ export const DEFAULT_SPRITE: SpriteSettings = { enabled: false, color: '#00ff00'
 
 export const verifyEnabled = (d: GenDefaults) => d.verify ?? true;
 export const maxRetries = (d: GenDefaults) => Math.max(0, Math.min(5, d.maxRetries ?? 2));
+/** Steps / CFG for a model slot: its own values when set, else the shared ones. */
+export const samplingFor = (d: GenDefaults, slot: ImageSlot = 'generate'): { steps: number; cfg: number } =>
+  slot === 'img2img' || slot === 'edit' ? (d.sampling?.[slot] ?? { steps: d.steps, cfg: d.cfg }) : { steps: d.steps, cfg: d.cfg };
+/** GenDefaults with new steps / CFG for a slot. */
+export const withSampling = (d: GenDefaults, slot: ImageSlot, v: { steps: number; cfg: number }): GenDefaults =>
+  slot === 'img2img' || slot === 'edit' ? { ...d, sampling: { ...d.sampling, [slot]: v } } : { ...d, ...v };
 export const refTolerance = (d: GenDefaults) => Math.max(0, Math.min(4, d.refTolerance ?? 0));
 export const refRetries = (d: GenDefaults) => Math.max(0, Math.min(8, d.refRetries ?? maxRetries(d)));
 

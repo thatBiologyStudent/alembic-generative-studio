@@ -9,6 +9,7 @@ import {
   Layers,
   Maximize2,
   MessageSquarePlus,
+  Palette,
   RefreshCcw,
   Save,
   Scissors,
@@ -20,11 +21,13 @@ import {
 } from 'lucide-react';
 import { db, type ImageRecord, type Project } from '../../db/schema';
 import { approveImage } from '../../agent/verify';
+import { SlotSampling } from '../workspace/RecommendedHint';
 import { updateProject } from '../../db/repo';
 import { resolveSlot, runImageOp } from '../../agent/generate';
 import { ModelPicker } from '../chat/ModelPicker';
 import { askVision } from '../../agent/runAgent';
-import { describePrompt, DETAILS, extractCharacterPrompt, type Detail } from '../../agent/prompts';
+import { describePrompt, DETAILS, extractCharacterPrompt, extractStylePrompt, type Detail } from '../../agent/prompts';
+import { deleteStyle, saveStyle, useStyles } from '../../lib/styles';
 import { getImageBackend } from '../../providers/image';
 import type { BackendCapabilities } from '../../providers/image/types';
 import { errMsg } from '../../lib/http';
@@ -35,7 +38,7 @@ import { Thumb } from '../chat/MessageView';
 import type { MaskHandle } from './MaskCanvas';
 import { CutoutTab } from './Cutout';
 
-export type ActionTab = 'info' | 'edit' | 'img2img' | 'cutout' | 'character' | 'describe' | 'upscale';
+export type ActionTab = 'info' | 'edit' | 'img2img' | 'cutout' | 'character' | 'style' | 'describe' | 'upscale';
 
 interface Props {
   project: Project;
@@ -62,6 +65,7 @@ const TABS: { id: ActionTab; label: string; icon: ReactNode }[] = [
   { id: 'img2img', label: 'img2img', icon: <Layers size={14} /> },
   { id: 'cutout', label: 'Remove background', icon: <Scissors size={14} /> },
   { id: 'character', label: 'Extract character', icon: <UserRound size={14} /> },
+  { id: 'style', label: 'Extract style', icon: <Palette size={14} /> },
   { id: 'describe', label: 'Describe', icon: <FileText size={14} /> },
   { id: 'upscale', label: 'Upscale', icon: <Maximize2 size={14} /> },
 ];
@@ -108,6 +112,7 @@ export function ActionsPanel(props: Props) {
         {tab === 'img2img' && <Img2ImgTab {...props} caps={i2iCaps} />}
         {tab === 'cutout' && <CutoutTab project={project} image={props.image} />}
         {tab === 'character' && <CharacterTab {...props} caps={caps} />}
+        {tab === 'style' && <StyleTab {...props} caps={caps} />}
         {tab === 'describe' && <DescribeTab {...props} caps={caps} />}
         {tab === 'upscale' && <UpscaleTab {...props} caps={caps} canUpscale={!!upTarget} />}
       </div>
@@ -290,6 +295,7 @@ function EditTab({ project, image, caps, mask, brush, setBrush, erase, setErase 
   return (
     <div className="space-y-2.5">
       <SlotRow project={project} slot="edit" label="Edit model" />
+      {caps?.steps && <SlotSampling project={project} slot="edit" />}
       {noMask && <p className="text-[11px] text-amber-400">This edit backend has no masked inpainting — paint nothing and describe the change, or use the img2img tab.</p>}
       <Row>
         <span className="text-xs text-muted">Paint the area to change:</span>
@@ -352,6 +358,7 @@ function Img2ImgTab({ project, image, caps }: TabProps) {
   return (
     <div className="space-y-2.5">
       <SlotRow project={project} slot="img2img" label="img2img model" />
+      {caps?.steps && <SlotSampling project={project} slot="img2img" />}
       <textarea className="input h-20" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Prompt for the new version" />
       <Row>
         {caps?.denoise && <Strength value={strength} onChange={setStrength} />}
@@ -401,7 +408,7 @@ function useDetail() {
   return { detail: DETAILS.includes(detail) ? detail : 'balanced', setDetail, multi, setMulti };
 }
 
-function DetailControls({ d, what }: { d: ReturnType<typeof useDetail>; what: 'character' | 'scene' }) {
+function DetailControls({ d, what }: { d: ReturnType<typeof useDetail>; what: 'character' | 'scene' | 'style' }) {
   const i = DETAILS.indexOf(d.detail);
   return (
     <div className="space-y-1">
@@ -416,10 +423,12 @@ function DetailControls({ d, what }: { d: ReturnType<typeof useDetail>; what: 'c
           </span>
           <input type="range" min={0} max={2} step={1} value={i} onChange={(e) => d.setDetail(DETAILS[+e.target.value])} className="w-full accent-violet-500" aria-label="Detail level" />
         </label>
-        <label className="flex items-center gap-1.5 text-xs text-muted" title={`Describe every ${what === 'character' ? 'character' : 'character in the scene'} separately instead of only the main one`}>
-          <input type="checkbox" checked={d.multi} onChange={(e) => d.setMulti(e.target.checked)} />
-          Several characters in the image
-        </label>
+        {what !== 'style' && (
+          <label className="flex items-center gap-1.5 text-xs text-muted" title={`Describe every ${what === 'character' ? 'character' : 'character in the scene'} separately instead of only the main one`}>
+            <input type="checkbox" checked={d.multi} onChange={(e) => d.setMulti(e.target.checked)} />
+            Several characters in the image
+          </label>
+        )}
       </div>
       <p className="text-[11px] text-muted">{DETAIL_INFO[d.detail].hint}</p>
     </div>
@@ -484,6 +493,91 @@ function CharacterTab({ project, image, caps }: TabProps) {
               </button>
             </span>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------- Extract style ----------------
+const STYLE_HINT: Record<Detail, string> = {
+  simple: 'The core of the look, applied loosely.',
+  balanced: 'Line art, shading, palette, lighting and texture.',
+  verbose: 'Everything that makes the look, for results that match it closely.',
+};
+
+function StyleTab({ project, image, caps }: TabProps) {
+  const d = useDetail();
+  const [text, setText] = useState('');
+  const [name, setName] = useState('');
+  const { busy, run } = useRunner();
+  const { prefill, toast } = useUI.getState();
+  const styles = useStyles();
+  useEffect(() => setText(''), [image.id]);
+  const style = caps?.promptStyle ?? 'tags';
+  // made in the studio: its prompt (and model) are what produced the style
+  const source = image.op !== 'upload' && image.prompt?.trim() ? { prompt: image.prompt.trim(), model: image.model } : undefined;
+  const active = project.defaults.stylePreset;
+  const setActive = (id?: string) => updateProject(project.id, { defaults: { ...project.defaults, stylePreset: id } });
+
+  return (
+    <div className="space-y-2.5">
+      <Row>
+        <button className="btn-primary" disabled={busy} onClick={() => run(async () => setText(await askVision(project, image.id, extractStylePrompt(style, d.detail, source), setText)))}>
+          {busy ? <Spinner /> : <Palette size={14} />} Extract art style
+        </button>
+        <span className="text-xs text-muted">
+          {source ? 'Uses the image and the prompt it was made from' : 'Uses the image (uploaded, so no prompt is known)'} · {style === 'tags' ? 'tag style' : 'natural language'}
+        </span>
+      </Row>
+      <DetailControls d={d} what="style" />
+      <p className="-mt-1 text-[11px] text-muted">{STYLE_HINT[d.detail]} Only the style is described, never the subject, so it fits any prompt.</p>
+      <textarea className={`input ${d.detail === 'verbose' ? 'h-32' : 'h-20'}`} value={text} onChange={(e) => setText(e.target.value)} placeholder="The style prompt appears here…" />
+      <Row>
+        <input className="input w-44" value={name} onChange={(e) => setName(e.target.value)} placeholder="Style name" />
+        <button
+          className="btn"
+          disabled={!text.trim() || !name.trim()}
+          onClick={async () => {
+            await saveStyle({ name: name.trim(), prompt: text.trim(), imageId: image.id, model: image.model });
+            toast(`Saved style "${name.trim()}": use it from the palette button in the chat box`, 'success');
+            setName('');
+          }}
+        >
+          <Save size={13} /> Save as preset
+        </button>
+        <button className="btn" disabled={!text.trim()} onClick={() => (navigator.clipboard.writeText(text), toast('Copied', 'info'))}>
+          <Copy size={13} /> Copy
+        </button>
+        <button className="btn" disabled={!text.trim()} onClick={() => prefill(project.id, text)}>
+          <MessageSquarePlus size={13} /> To chat
+        </button>
+      </Row>
+      {source?.model && <p className="text-[11px] text-zinc-600">The look also comes from the model ({source.model}): other models will get close, not identical.</p>}
+      {!!styles.length && (
+        <div className="space-y-1 pt-1">
+          <div className="text-[11px] text-muted">Style presets (all projects) · click one to use it for every new image in this project</div>
+          <div className="flex flex-wrap gap-1.5">
+            {styles.map((st) => (
+              <span
+                key={st.id}
+                className={`flex items-center gap-1 rounded-full border py-0.5 pr-1 pl-2 text-xs ${active === st.id ? 'border-accent bg-accent/20 text-white' : 'border-line bg-panel2'}`}
+                title={st.prompt}
+              >
+                <button onClick={() => setActive(active === st.id ? undefined : st.id)}>{st.name}</button>
+                <button
+                  className="rounded-full p-0.5 text-zinc-500 hover:text-red-400"
+                  onClick={async () => {
+                    if (active === st.id) await setActive(undefined);
+                    await deleteStyle(st.id);
+                  }}
+                  title="Delete preset"
+                >
+                  <XCircle size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>

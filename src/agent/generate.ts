@@ -1,4 +1,4 @@
-import { db, SLOT_FIELDS, type Connection, type ImageRecord, type ImageSlot, type Project } from '../db/schema';
+import { db, samplingFor, SLOT_FIELDS, type Connection, type ImageRecord, type ImageSlot, type Project } from '../db/schema';
 import { saveImage } from '../db/repo';
 import { getImageBackend } from '../providers/image';
 import { fetchModelList } from '../providers/models';
@@ -6,6 +6,7 @@ import { autoSave } from '../lib/output';
 import type { GenParams, ImageBackend } from '../providers/image/types';
 import { useUI } from '../store/ui';
 import { afterGenerate, spriteNegative, spriteOf, withSpriteClause } from './sprite';
+import { activeStyle, withStyle } from '../lib/styles';
 
 export interface SlotTarget {
   conn: Connection;
@@ -81,6 +82,8 @@ const NOT_REFERENCE = /(image-to-image|img2img|upscal|inpaint-only|controlnet|vt
 const SIDECAR_REFERENCE = new Set(['flow-sidecar', 'bing-sidecar', 'gemini', 'nvidia', 'openart', 'demo']);
 
 export interface ReferenceTarget extends SlotTarget {
+  /** the model slot it came from */
+  slot: 'generate' | 'img2img' | 'edit';
   /** how many reference images one request may take */
   max: number;
 }
@@ -108,7 +111,7 @@ export async function referenceTarget(project: Project): Promise<ReferenceTarget
     const t = await resolveSlot(project, slot);
     if (!t) continue;
     const max = await referenceLimit(t);
-    if (max) return { ...t, max };
+    if (max) return { ...t, max, slot };
   }
   return undefined;
 }
@@ -128,7 +131,21 @@ type Op =
   | { kind: 'txt2img'; params: Partial<GenParams> & { prompt: string }; /** character reference image ids (recorded on the result) */ references?: string[] }
   /** character reference mode with a model that takes the reference images themselves */
   | { kind: 'reference'; params: Partial<GenParams> & { prompt: string }; references: ImageRecord[] }
-  | { kind: 'img2img'; source: ImageRecord; prompt: string; denoise?: number; mask?: Blob; count?: number; negative?: string; seed?: number; /** which model: the img2img tab and attachments use 'img2img', edits 'edit' (default) */ slot?: 'img2img' | 'edit' }
+  | {
+      kind: 'img2img';
+      source: ImageRecord;
+      prompt: string;
+      denoise?: number;
+      mask?: Blob;
+      count?: number;
+      negative?: string;
+      seed?: number;
+      /** which model: the img2img tab and attachments use 'img2img', edits 'edit' (default) */
+      slot?: 'img2img' | 'edit';
+      /** override the slot's steps / CFG (e.g. the recommended values after mangled results) */
+      steps?: number;
+      cfg?: number;
+    }
   | { kind: 'upscale'; source: ImageRecord; scale: number };
 
 /** Runs an image job against the project's backend, shows progress in the gallery and saves results. */
@@ -174,6 +191,9 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
       if (params.negative && d.negative && op.params.negative && !op.params.negative.includes(d.negative)) {
         params.negative = `${op.params.negative}, ${d.negative}`;
       }
+      // the project's style preset, when one is switched on (not in reference mode: the reference's own style must win there)
+      const style = op.references?.length ? undefined : await activeStyle(project);
+      if (style) params.prompt = withStyle(params.prompt, style.prompt, backend.capabilities.promptStyle === 'tags');
       const sprite = spriteOf(project);
       if (sprite.enabled) {
         params.prompt = withSpriteClause(params.prompt, project, backend.capabilities.promptStyle);
@@ -215,7 +235,21 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
       for (let i = 0; i < count; i++) {
         imgs.push(
           ...(await backend.img2img(
-            { prompt, width, height, count: 1, model, seed: op.params.seed, image: refs[0].blob, references: refs.slice(1).map((r) => r.blob), reference: true, denoise: 0.9 },
+            {
+            prompt,
+            width,
+            height,
+            count: 1,
+            model,
+            seed: op.params.seed,
+            // the reference model's own slot values (the txt2img ones when it is the Generate model)
+            steps: refTarget!.slot === 'generate' ? (op.params.steps ?? d.steps) : (op.params.steps ?? samplingFor(d, refTarget!.slot).steps),
+            cfg: refTarget!.slot === 'generate' ? (op.params.cfg ?? d.cfg) : (op.params.cfg ?? samplingFor(d, refTarget!.slot).cfg),
+            image: refs[0].blob,
+            references: refs.slice(1).map((r) => r.blob),
+            reference: true,
+            denoise: 0.9,
+          },
             { ...ctx, onProgress: (f, pv) => ctx.onProgress((i + f) / count, pv) },
           )),
         );
@@ -235,14 +269,17 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
       if (sprite.enabled && !opts?.heldForCheck) afterGenerate(project.id, saved);
     } else if (op.kind === 'img2img') {
       const denoise = op.denoise ?? d.denoise;
+      const smp = samplingFor(d, op.slot ?? 'edit');
+      const steps = op.steps ?? smp.steps;
+      const cfg = op.cfg ?? smp.cfg;
       const imgs = await backend.img2img(
         {
           prompt: op.prompt,
           negative: op.negative ?? (d.negative || undefined),
           width: op.source.width,
           height: op.source.height,
-          steps: d.steps,
-          cfg: d.cfg,
+          steps,
+          cfg,
           sampler: d.sampler || undefined,
           count: op.count ?? 1,
           seed: op.seed,
@@ -263,7 +300,7 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
             backend: conn.name,
             model,
             parentId: op.source.id,
-            params: { denoise, steps: d.steps, cfg: d.cfg },
+            params: { denoise, steps, cfg },
           }),
         );
       }

@@ -1,4 +1,4 @@
-import type { Connection, GenDefaults, Project } from '../db/schema';
+import type { Connection, GenDefaults, ImageSlot, Project } from '../db/schema';
 import type { ImageBackend } from '../providers/image/types';
 import { fetchModelList } from '../providers/models';
 
@@ -108,10 +108,10 @@ export function recommendedForModel(conn: Connection, backend: ImageBackend, mod
   return p;
 }
 
-/** Recommended values for the project's Generate model. */
-export async function recommendedFor(project: Project): Promise<(Recommended & { model: string }) | undefined> {
+/** Recommended values for the model in a slot (default: the Generate model). */
+export async function recommendedFor(project: Project, slot: ImageSlot = 'generate'): Promise<(Recommended & { model: string }) | undefined> {
   const { resolveSlot } = await import('../agent/generate');
-  const t = await resolveSlot(project, 'generate');
+  const t = await resolveSlot(project, slot);
   if (!t?.model) return undefined;
   const r = await recommendedForModel(t.conn, t.backend, t.model);
   return r && { ...r, model: t.model };

@@ -1,8 +1,8 @@
-import { db, maxRetries, refRetries, refTolerance, verifyEnabled, type ImageRecord, type Project } from '../db/schema';
+import { db, maxRetries, refRetries, refTolerance, samplingFor, verifyEnabled, type ImageRecord, type Project } from '../db/schema';
 import { errMsg } from '../lib/http';
 import type { GenParams } from '../providers/image/types';
 import { useUI } from '../store/ui';
-import { runImageOp } from './generate';
+import { referenceTarget, runImageOp } from './generate';
 import { autoSave } from '../lib/output';
 import { askVision, askVisionParts, imageDataUrl } from './vision';
 import { extractCharacterPrompt } from './prompts';
@@ -296,8 +296,11 @@ export async function generateChecked(
     retries++;
     // mangled images usually mean wrong CFG/steps for this model: switch to the recommended values once
     if (mangled && !settingsNote) {
-      const rec = await recommendedFor(project).catch(() => undefined);
-      const cur = { steps: gp.steps ?? project.defaults.steps, cfg: gp.cfg ?? project.defaults.cfg };
+      const target = opts?.sendImages?.length ? await referenceTarget(project) : undefined;
+      const slot = target?.slot ?? 'generate';
+      const rec = await recommendedFor(project, slot).catch(() => undefined);
+      const base = samplingFor(project.defaults, slot);
+      const cur = { steps: gp.steps ?? base.steps, cfg: gp.cfg ?? base.cfg };
       if (rec && mismatch(rec, cur).any) {
         gp = { ...gp, ...(rec.steps ? { steps: rec.steps } : {}), ...(rec.cfg !== undefined ? { cfg: rec.cfg } : {}) };
         settingsNote = ` · images came out mangled at CFG ${cur.cfg} / ${cur.steps} steps, so the retries used ${describeRecommended(rec)} (${rec.exact ? `recommended by ${rec.source}` : rec.source})`;
@@ -331,17 +334,20 @@ export async function editChecked(
   const count = op.count ?? 1;
   const checked = await canCheck(project);
   let prompt = op.prompt;
+  let override: { steps?: number; cfg?: number } = {};
+  let settingsNote = '';
   const good: ImageRecord[] = [];
   const rejected: ImageRecord[] = [];
   let retries = 0;
   let lastIssues: string[] = [];
   let skipped: string | undefined;
   while (true) {
-    const imgs = await runImageOp(project, { kind: 'img2img', ...op, prompt, count: count - good.length }, signal, { heldForCheck: checked });
+    const imgs = await runImageOp(project, { kind: 'img2img', ...op, ...override, prompt, count: count - good.length }, signal, { heldForCheck: checked });
     if (!checked) return { images: imgs, rejected: [], retries: 0, summary: '' };
     const results = await checkAll(project, imgs, request, prompt, signal);
     lastIssues = [];
     let fixed: string | undefined;
+    let mangled = false;
     for (const { img, res } of results) {
       if (res.ok) {
         good.push(img);
@@ -350,6 +356,7 @@ export async function editChecked(
       else {
         rejected.push(img);
         lastIssues.push(res.issues);
+        if (res.artefacts) mangled = true;
         fixed ??= res.fixedPrompt;
       }
       skipped ??= res.skipped;
@@ -357,6 +364,16 @@ export async function editChecked(
     // stop when everything passed, the retry budget is used up, or this round had no failures (provider just returned fewer images)
     if (good.length >= count || retries >= maxRetries(project.defaults) || signal?.aborted || !lastIssues.length) break;
     retries++;
+    // mangled edits: switch to the recommended values of the model that made them, once
+    if (mangled && !settingsNote) {
+      const slot = op.slot ?? 'edit';
+      const rec = await recommendedFor(project, slot).catch(() => undefined);
+      const cur = samplingFor(project.defaults, slot);
+      if (rec && mismatch(rec, cur).any) {
+        override = { ...(rec.steps ? { steps: rec.steps } : {}), ...(rec.cfg !== undefined ? { cfg: rec.cfg } : {}) };
+        settingsNote = ` · images came out mangled at CFG ${cur.cfg} / ${cur.steps} steps, so the retries used ${describeRecommended(rec)} (${rec.exact ? `recommended by ${rec.source}` : rec.source})`;
+      }
+    }
     if (fixed) prompt = fixed;
   }
   const images = good.length ? good : rejected.slice(-count);
@@ -364,7 +381,7 @@ export async function editChecked(
     images,
     rejected: rejected.filter((r) => !images.includes(r)),
     retries,
-    summary: summarize(count, good, rejected, retries, lastIssues, skipped, checked),
+    summary: summarize(count, good, rejected, retries, lastIssues, skipped, checked) + settingsNote,
     limitReached: good.length < count && !!lastIssues.length && !signal?.aborted,
   };
 }
