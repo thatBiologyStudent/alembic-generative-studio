@@ -31,7 +31,7 @@ export function buildTools(caps: BackendCapabilities, slots: { edit?: BackendCap
             items: { type: 'string' },
             description:
               'Character reference images ([image:<id>] ids, at most 4). Use when the user attached images as character references or asks for the same character as an existing image in a new scene. ' +
-              'The reference is NOT edited: the character is described in detail and drawn from text, and each result is compared with the reference and regenerated until it matches. Write the prompt for the new scene, pose and composition only.',
+              'The reference is NOT edited as a canvas: the character is described in detail (and the reference image goes along as an identity guide when the model takes reference images), and each result is compared with the reference and regenerated until it matches. Write the prompt for the new scene, pose and composition only.',
           },
           ...(caps.negative ? { negative_prompt: { type: 'string', description: 'Things to avoid.' } } : {}),
           ...sizeProps,

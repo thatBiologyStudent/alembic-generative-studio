@@ -21,7 +21,17 @@ export class DemoProvider implements LLMProvider {
 
   async chat(req: ChatRequest): Promise<ChatResponse> {
     const last = req.messages[req.messages.length - 1];
-    if (req.system?.includes('quality checker') || req.system?.includes('character consistency')) {
+    if (req.system?.includes('character consistency')) {
+      // offline stand-in for the reference comparison: "lookalike" in the request fails until the corrections are in the prompt
+      const t = last?.role === 'user' ? last.content.map((p) => (p.type === 'text' ? p.text : '')).join(' ') : '';
+      const text =
+        /lookalike/i.test(t) && !/Must match the character exactly/.test(t)
+          ? '{"features": [{"feature": "hair", "reference": "straight silver bob", "generated": "wavy grey hair", "same": false}], "identity_score": 7, "scene_ok": true, "match": false, "corrections": ["straight-cut silver bob ending at the jaw"]}'
+          : '{"features": [{"feature": "hair", "reference": "straight silver bob", "generated": "straight silver bob", "same": true}], "identity_score": 9, "scene_ok": true, "match": true}';
+      await this.stream(text, req);
+      return { text, toolCalls: [] };
+    }
+    if (req.system?.includes('quality checker')) {
       // offline stand-in for the image check. Test keywords in your message:
       //   "fail-once"   → first attempt fails, the suggested fixed prompt passes
       //   "always-fail" → every attempt fails (shows the retry limit)

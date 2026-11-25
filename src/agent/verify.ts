@@ -13,6 +13,10 @@ export interface CheckResult {
   issues: string;
   /** improved prompt suggested by the checker, if any */
   fixedPrompt?: string;
+  /** reference mode: what the reference shows for each feature that came out different */
+  corrections?: string[];
+  /** reference mode: identity score 0-10 */
+  score?: number;
   /** the check itself could not run (no vision model, bad JSON, …) — treated as a pass */
   skipped?: string;
 }
@@ -26,14 +30,43 @@ const CHECK_SYSTEM = [
 ].join('\n');
 
 const REF_CHECK_SYSTEM = [
-  'You are a strict but fair checker for character consistency in an image generator.',
-  'You get one or more REFERENCE images of a character, then (last) a newly GENERATED image, plus the user request and the prompt that was sent.',
-  'The generated image is meant to show the SAME character(s) as the reference in a NEW scene: the pose, background, camera, framing and lighting are supposed to differ. Never fail it for those.',
-  'Compare the character identity only: face, eye colour, hairstyle and hair colour, skin tone, body type, species features (ears, horns, tail, wings), distinctive marks, outfit pieces and their colours, signature accessories, and the art style.',
-  'Also fail it when the scene the user asked for is missing. Ignore tiny details hidden by the new pose.',
-  'Answer ONLY with JSON: {"match": true|false, "issues": "which character features differ from the reference, when false", ' +
-    '"fixed_prompt": "when false: the full prompt again, keeping the requested scene and composition, with the character description corrected and the differing features stated more explicitly"}',
+  'You check character consistency for an image generator, and you are STRICT: the goal is the SAME character, not a similar one.',
+  'You get one or more REFERENCE images, then (last) a newly GENERATED image, plus the user request, the prompt that was sent and a written description of the reference character.',
+  'The new image is meant to show the same character in a NEW scene: pose, expression, background, camera, framing and lighting are supposed to differ. Never count those against it.',
+  'Work feature by feature. For every identifying feature that is visible in both images, note what the reference shows and what the generated image shows, and whether they are the same:',
+  'face shape and proportions, eye colour and eye shape, eyebrows, hair colour (exact shade), hair length, haircut and fringe/parting, skin tone, apparent age, body type, species features (ears, horns, tail, wings), scars/marks/tattoos and their placement,',
+  'every outfit piece (cut, length, colour shade, pattern, trim), accessories and weapons, and the art style (medium, line art, shading, proportions).',
+  'A different haircut, a different shade, a missing or added garment, a different pattern, a different face or a different art style means NOT the same. "Close", "similar" or "same vibe" is a lookalike and a FAIL.',
+  'Ask yourself: would someone who knows this character say without hesitation that it is them? If you hesitate, it fails.',
+  'Features hidden by the new pose or framing are skipped, not failed. Also fail it when the scene the user asked for is missing.',
+  'Answer ONLY with JSON:',
+  '{"features": [{"feature": "hair", "reference": "short silver bob, straight fringe", "generated": "...", "same": true|false}, ...],',
+  ' "identity_score": 0-10 (10 = unmistakably the same character, 7 = a lookalike), "scene_ok": true|false, "match": true|false,',
+  ' "issues": "the features that differ, when false",',
+  ' "corrections": ["one short, positive statement per differing feature, describing what the REFERENCE shows, e.g. straight-cut silver bob ending at the jaw"]}',
 ].join('\n');
+
+/** Reference check: passes only when the checker scores it 8+ and lists no differing feature. */
+function parseRefCheck(text: string): CheckResult {
+  const m = /\{[\s\S]*\}/.exec(text);
+  if (!m) return { ok: true, issues: '', skipped: 'checker gave no JSON' };
+  try {
+    const j = JSON.parse(m[0]);
+    const differing: string[] = Array.isArray(j.features)
+      ? j.features.filter((f: any) => f && (f.same === false || f.same === 'false')).map((f: any) => String(f.feature ?? ''))
+      : [];
+    const score = Number(j.identity_score);
+    const scored = j.identity_score !== undefined && Number.isFinite(score);
+    const ok = j.match !== false && j.match !== 'false' && j.scene_ok !== false && !differing.length && (!scored || score >= 8);
+    const corrections: string[] = Array.isArray(j.corrections) ? j.corrections.map(String).filter((c: string) => c.trim()) : [];
+    const why =
+      String(j.issues ?? '').trim() ||
+      (differing.length ? `differs from the reference: ${differing.join(', ')}` : j.scene_ok === false ? 'the requested scene is missing' : 'a lookalike, not the same character');
+    return { ok, issues: ok ? '' : `${why}${scored ? ` (identity ${score}/10)` : ''}`, corrections: ok ? undefined : corrections, score: scored ? score : undefined };
+  } catch {
+    return { ok: true, issues: '', skipped: 'checker gave invalid JSON' };
+  }
+}
 
 function parseCheck(text: string): CheckResult {
   const m = /\{[\s\S]*\}/.exec(text);
@@ -55,28 +88,32 @@ export async function checkImage(
   prompt: string,
   signal?: AbortSignal,
   references?: string[],
+  checklist?: string,
 ): Promise<CheckResult> {
   let res: CheckResult;
   try {
-    let text: string;
     if (references?.length) {
       const urls = (await Promise.all([...references, img.id].map((id) => imageDataUrl(id, 1024)))).filter((u): u is string => !!u);
-      text = await askVisionUrl(
+      const text = await askVisionUrl(
         project,
         urls,
-        `The first ${urls.length - 1} image(s) are the REFERENCE, the last one is the GENERATED image.\nUser request (the new scene): ${request || prompt}\nPrompt sent to the generator: ${prompt}\n\nIs it the same character as the reference, in the requested scene? Reply with the JSON only.`,
+        `The first ${urls.length - 1} image(s) are the REFERENCE, the last one is the GENERATED image.\nUser request (the new scene): ${request || prompt}\nPrompt sent to the generator: ${prompt}\n` +
+          (checklist ? `\nWritten description of the reference character (a checklist; the reference image decides):\n${checklist}\n` : '') +
+          '\nIs it unmistakably the same character as the reference, in the requested scene? Compare feature by feature and reply with the JSON only.',
         undefined,
         { signal, system: REF_CHECK_SYSTEM },
       );
-    } else
-      text = await askVision(
+      res = parseRefCheck(text);
+    } else {
+      const text = await askVision(
         project,
         img.id,
         `User request: ${request || prompt}\nPrompt sent to the generator: ${prompt}\n\nDoes the image deliver the request? Reply with the JSON only.`,
         undefined,
         { maxEdge: 1024, signal, system: CHECK_SYSTEM },
       );
-    res = parseCheck(text);
+      res = parseCheck(text);
+    }
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
     res = { ok: true, issues: '', skipped: errMsg(e) };
@@ -99,7 +136,7 @@ export interface VerifiedResult {
 }
 
 /** Run checks for a batch of fresh images, showing a "checking" tile in the gallery meanwhile. */
-async function checkAll(project: Project, imgs: ImageRecord[], request: string, prompt: string, signal?: AbortSignal, references?: string[]) {
+async function checkAll(project: Project, imgs: ImageRecord[], request: string, prompt: string, signal?: AbortSignal, references?: string[], checklist?: string) {
   const ui = useUI.getState();
   const job = ui.addJob({ projectId: project.id, label: `${references?.length ? 'Comparing with reference' : 'AI checking'}: ${request || prompt}`, count: imgs.length });
   const onAbort = () => job.abort.abort();
@@ -107,7 +144,7 @@ async function checkAll(project: Project, imgs: ImageRecord[], request: string, 
   try {
     const out: { img: ImageRecord; res: CheckResult }[] = [];
     for (let i = 0; i < imgs.length; i++) {
-      out.push({ img: imgs[i], res: await checkImage(project, imgs[i], request, prompt, job.abort.signal, references) });
+      out.push({ img: imgs[i], res: await checkImage(project, imgs[i], request, prompt, job.abort.signal, references, checklist) });
       useUI.getState().updateJob(job.id, { progress: (i + 1) / imgs.length });
     }
     return out;
@@ -143,10 +180,18 @@ export async function generateChecked(
   params: Partial<GenParams> & { prompt: string },
   request: string,
   signal?: AbortSignal,
-  opts?: { references?: string[] },
+  opts?: {
+    references?: string[];
+    /** written description of the reference character(s) */
+    checklist?: string;
+    /** send the reference images themselves to a model that takes them */
+    sendImages?: ImageRecord[];
+  },
 ): Promise<VerifiedResult> {
   const count = params.count ?? project.defaults.count;
   const refs = opts?.references;
+  // reference mode keeps the full character description and adds what came out different, instead of letting the checker rewrite the prompt
+  const corrections: string[] = [];
   const checked = await canCheck(project, refs);
   let prompt = params.prompt;
   const good: ImageRecord[] = [];
@@ -156,9 +201,11 @@ export async function generateChecked(
   let skipped: string | undefined;
   while (true) {
     const need = count - good.length;
-    const imgs = await runImageOp(project, { kind: 'txt2img', params: { ...params, prompt, count: need }, references: refs }, signal, { heldForCheck: checked });
+    const imgs = opts?.sendImages?.length
+      ? await runImageOp(project, { kind: 'reference', params: { ...params, prompt, count: need }, references: opts.sendImages }, signal, { heldForCheck: checked })
+      : await runImageOp(project, { kind: 'txt2img', params: { ...params, prompt, count: need }, references: refs }, signal, { heldForCheck: checked });
     if (!checked) return { images: imgs, rejected: [], retries: 0, summary: '' };
-    const results = await checkAll(project, imgs, request, prompt, signal, refs);
+    const results = await checkAll(project, imgs, request, prompt, signal, refs, opts?.checklist);
     lastIssues = [];
     let fixed: string | undefined;
     for (const { img, res } of results) {
@@ -170,13 +217,16 @@ export async function generateChecked(
         rejected.push(img);
         lastIssues.push(res.issues);
         fixed ??= res.fixedPrompt;
+        for (const c of res.corrections ?? []) if (!corrections.some((x) => x.toLowerCase() === c.toLowerCase())) corrections.push(c);
       }
       skipped ??= res.skipped;
     }
     // stop when everything passed, the retry budget is used up, or this round had no failures (provider just returned fewer images)
     if (good.length >= count || retries >= maxRetries(project.defaults) || signal?.aborted || !lastIssues.length) break;
     retries++;
-    if (fixed) prompt = fixed;
+    if (refs?.length) {
+      if (corrections.length) prompt = `${params.prompt}\n\nMust match the character exactly: ${corrections.slice(-12).join('; ')}.`;
+    } else if (fixed) prompt = fixed;
   }
   // nothing passed: still hand back the latest attempt so the user sees something
   const images = good.length ? good : rejected.slice(-count);

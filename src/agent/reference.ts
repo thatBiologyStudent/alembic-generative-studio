@@ -1,7 +1,7 @@
-import type { Project } from '../db/schema';
+import { db, type ImageRecord, type Project } from '../db/schema';
 import type { GenParams } from '../providers/image/types';
 import { useUI } from '../store/ui';
-import { resolveSlot } from './generate';
+import { referenceTarget, resolveSlot } from './generate';
 import { extractCharacterPrompt } from './prompts';
 import { generateChecked, type VerifiedResult } from './verify';
 import { askVision } from './vision';
@@ -44,9 +44,31 @@ export function referencePrompt(scene: string, descriptions: string[], style: 't
     .join('\n\n');
 }
 
+/** Prompt for a model that gets the reference image(s) themselves: same character, everything else new. */
+export function referenceImagePrompt(scene: string, descriptions: string[]): string {
+  const many = descriptions.length > 1;
+  return [
+    many
+      ? `Create a NEW image of the ${descriptions.length} characters shown in the reference images (one character per reference image).`
+      : 'Create a NEW image of the character shown in the reference image.',
+    `It must be unmistakably the same character${many ? 's' : ''}: identical face, eyes, hairstyle and hair colour, skin tone, body type, outfit, colours, accessories, markings and art style.`,
+    "Do not copy the reference's pose, camera angle, background or framing: draw a new composition.",
+    `New scene: ${scene.trim()}`,
+    many ? descriptions.map((d, i) => `Character ${i + 1} (reference image ${i + 1}): ${d}`).join('\n') : `Character details: ${descriptions[0]}`,
+  ].join('\n\n');
+}
+
+/** Whether reference mode will send the reference images to a model, and which one (for the UI). */
+export async function referenceMode(project: Project): Promise<{ sendImages: boolean; model?: string; max: number }> {
+  if (project.defaults.refImages === false) return { sendImages: false, max: 0 };
+  const t = await referenceTarget(project);
+  return t ? { sendImages: true, model: t.model ?? t.conn.name, max: t.max } : { sendImages: false, max: 0 };
+}
+
 /**
- * Character reference mode: the reference is never used as an img2img source. Its character is described in detail,
- * drawn from text in the new scene, and every result is compared with the reference until it matches (or the retry limit is hit).
+ * Character reference mode: the reference is never used as an img2img canvas. Its character is described in detail and drawn
+ * in the new scene, and every result is compared with the reference until it matches (or the retry limit is hit).
+ * When a model takes reference images (and the option is on), the reference goes along as an identity guide; otherwise text only.
  */
 export async function generateFromReference(
   project: Project,
@@ -56,8 +78,18 @@ export async function generateFromReference(
   params?: Partial<GenParams>,
   request?: string,
 ): Promise<VerifiedResult> {
-  const style = (await resolveSlot(project, 'generate'))?.backend.capabilities.promptStyle ?? 'natural';
   const descriptions = await describeReferences(project, refIds, signal);
-  const prompt = referencePrompt(scene, descriptions, style);
-  return generateChecked(project, { ...params, prompt }, request ?? scene, signal, { references: refIds });
+  const checklist = descriptions.join('\n\n');
+  const mode = await referenceMode(project);
+  if (mode.sendImages) {
+    const recs = (await db.images.bulkGet(refIds.slice(0, mode.max))).filter((r): r is ImageRecord => !!r);
+    if (recs.length)
+      return generateChecked(project, { ...params, prompt: referenceImagePrompt(scene, descriptions.slice(0, recs.length)) }, request ?? scene, signal, {
+        references: refIds,
+        checklist,
+        sendImages: recs,
+      });
+  }
+  const style = (await resolveSlot(project, 'generate'))?.backend.capabilities.promptStyle ?? 'natural';
+  return generateChecked(project, { ...params, prompt: referencePrompt(scene, descriptions, style) }, request ?? scene, signal, { references: refIds, checklist });
 }

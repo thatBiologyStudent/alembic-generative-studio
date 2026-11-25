@@ -16,6 +16,8 @@ export interface GenDefaults {
   maxRetries?: number;
   /** sprite mode: generate on a solid background and cut it out */
   sprite?: SpriteSettings;
+  /** character reference mode: also send the reference image to models that take reference images (default on) */
+  refImages?: boolean;
 }
 
 export type SpriteMode = 'manual' | 'same' | 'auto';

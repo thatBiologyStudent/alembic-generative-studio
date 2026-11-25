@@ -237,7 +237,9 @@ export class OpenAIImagesBackend implements ImageBackend {
   async img2img(p: Img2ImgParams, ctx?: GenContext): Promise<GenImage[]> {
     let model = this.model(p);
     if (this.official && model.startsWith('dall-e-3')) model = 'gpt-image-1';
-    const size = await imageSize(p.image);
+    // reference mode: the output gets the requested size, not the reference's
+    const size = p.reference ? { width: p.width, height: p.height } : await imageSize(p.image);
+    const refs = p.reference ? (p.references ?? []) : [];
     ctx?.onProgress?.(0.1);
 
     if (this.conn.extra?.editStyle === 'dataurl') {
@@ -247,8 +249,10 @@ export class OpenAIImagesBackend implements ImageBackend {
         n: Math.min(p.count ?? 1, await this.perRequest(model)),
         ...(await this.sizeFields(model, size.width, size.height)),
         response_format: 'b64_json',
-        imageDataUrl: await blobToDataUrl(await resizeBlob(p.image, 2048, 'image/jpeg', 0.92)),
       };
+      const urls = await Promise.all([p.image, ...refs].map(async (b) => blobToDataUrl(await resizeBlob(b, 2048, 'image/jpeg', 0.92))));
+      if (urls.length > 1) body.imageDataUrls = urls;
+      else body.imageDataUrl = urls[0];
       if (p.mask) body.maskDataUrl = await blobToDataUrl(await toPng(p.mask, size.width, size.height));
       await this.sdFields(model, p, body);
       return this.parse(await this.post('/images/generations', body, ctx));
@@ -261,6 +265,7 @@ export class OpenAIImagesBackend implements ImageBackend {
     for (const [k, v] of Object.entries(await this.sizeFields(model, size.width, size.height))) if (v) fd.append(k, v);
     if (!this.official || model.startsWith('dall-e')) fd.append('response_format', 'b64_json');
     fd.append(this.official && !model.startsWith('dall-e') ? 'image[]' : 'image', await toPng(p.image), 'image.png');
+    if (this.official && !model.startsWith('dall-e')) for (const [i, b] of refs.entries()) fd.append('image[]', await toPng(b), `reference-${i + 1}.png`);
     if (p.mask) fd.append('mask', await maskToAlphaMask(p.mask, size.width, size.height), 'mask.png');
     const q = this.quality(model);
     if (q) fd.append('quality', q);

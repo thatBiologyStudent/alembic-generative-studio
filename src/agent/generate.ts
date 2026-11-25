@@ -72,6 +72,44 @@ export async function requireSlot(project: Project, slot: ImageSlot): Promise<Sl
   throw new Error(SLOT_HINT[slot]);
 }
 
+// models that take an image as a reference and draw a new picture from an instruction (not diffusion img2img, which keeps the composition)
+const REFERENCE_MODEL = /(nano-?banana|gemini[\w.-]*image|gpt-image|kontext|flux[.-]?[23]|qwen[\w.-]*image[\w.-]*(edit|-2|-3)|seedream|seededit|kling-image-o|runway|gen-?4-image|muse-image|minimax[\w./-]*image|wan[\w.-]*image|uni-1|hidream-e|step1x-edit|omnigen|bagel)/i;
+const NOT_REFERENCE = /(image-to-image|img2img|upscal|inpaint-only|controlnet|vto)/i;
+const SIDECAR_REFERENCE = new Set(['flow-sidecar', 'bing-sidecar', 'gemini', 'nvidia', 'openart', 'demo']);
+
+export interface ReferenceTarget extends SlotTarget {
+  /** how many reference images one request may take */
+  max: number;
+}
+
+/** Can this model take a reference image and draw a new composition from it? Returns the image limit, or 0. */
+export async function referenceLimit(t: SlotTarget): Promise<number> {
+  if (!t.backend.capabilities.img2img) return 0;
+  const model = t.model ?? '';
+  let info;
+  try {
+    info = model ? (await fetchModelList(t.conn, 'image')).info?.[model] : undefined;
+  } catch {
+    info = undefined;
+  }
+  if (info?.maxInputImages) return NOT_REFERENCE.test(model) ? 0 : info.maxInputImages;
+  if (model && NOT_REFERENCE.test(model)) return 0;
+  if (model && REFERENCE_MODEL.test(`${model} ${info?.name ?? ''}`)) return t.conn.imageApi === 'openai-images' || t.conn.imageApi === 'sdnext' || t.conn.imageApi === 'a1111' ? 3 : 1;
+  if (SIDECAR_REFERENCE.has(t.conn.imageApi ?? '')) return 1;
+  return 0;
+}
+
+/** The model that gets the reference images: the Generate model if it takes them, else the Edit model. */
+export async function referenceTarget(project: Project): Promise<ReferenceTarget | undefined> {
+  for (const slot of ['generate', 'edit'] as const) {
+    const t = await resolveSlot(project, slot);
+    if (!t) continue;
+    const max = await referenceLimit(t);
+    if (max) return { ...t, max };
+  }
+  return undefined;
+}
+
 /** Back-compat helper: the Generate slot. */
 export async function resolveImageBackend(project: Project): Promise<{ conn: Connection; backend: ImageBackend }> {
   return requireSlot(project, 'generate');
@@ -85,6 +123,8 @@ export async function resolveLLMConn(project: Project): Promise<Connection> {
 
 type Op =
   | { kind: 'txt2img'; params: Partial<GenParams> & { prompt: string }; /** character reference image ids (recorded on the result) */ references?: string[] }
+  /** character reference mode with a model that takes the reference images themselves */
+  | { kind: 'reference'; params: Partial<GenParams> & { prompt: string }; references: ImageRecord[] }
   | { kind: 'img2img'; source: ImageRecord; prompt: string; denoise?: number; mask?: Blob; count?: number; negative?: string; seed?: number }
   | { kind: 'upscale'; source: ImageRecord; scale: number };
 
@@ -92,12 +132,20 @@ type Op =
 export async function runImageOp(project: Project, op: Op, signal?: AbortSignal, opts?: { heldForCheck?: boolean }): Promise<ImageRecord[]> {
   // providers answer an empty prompt with cryptic validation errors: say what is wrong instead
   if (op.kind === 'txt2img' && !op.params.prompt?.trim()) throw new Error('The prompt was empty. Write a description of the image to generate.');
-  const { conn, backend, model } = await requireSlot(project, op.kind === 'txt2img' ? 'generate' : op.kind === 'img2img' ? 'edit' : 'upscale');
+  const refTarget = op.kind === 'reference' ? await referenceTarget(project) : undefined;
+  if (op.kind === 'reference' && !refTarget) throw new Error('None of your image models takes reference images. Pick one that does (e.g. Nano Banana, Qwen Image Edit, FLUX.2, GPT Image) as the Generate or Edit model.');
+  const { conn, backend, model } = refTarget ?? (await requireSlot(project, op.kind === 'txt2img' ? 'generate' : op.kind === 'img2img' ? 'edit' : 'upscale'));
   const d = project.defaults;
   const ui = useUI.getState();
   const label =
-    op.kind === 'txt2img' ? op.params.prompt : op.kind === 'img2img' ? (op.mask ? 'Inpaint: ' : 'img2img: ') + op.prompt : `Upscale ×${op.scale}`;
-  const count = op.kind === 'txt2img' ? op.params.count ?? d.count : op.kind === 'img2img' ? op.count ?? 1 : 1;
+    op.kind === 'txt2img'
+      ? op.params.prompt
+      : op.kind === 'reference'
+        ? `From reference: ${op.params.prompt}`
+        : op.kind === 'img2img'
+          ? (op.mask ? 'Inpaint: ' : 'img2img: ') + op.prompt
+          : `Upscale ×${op.scale}`;
+  const count = op.kind === 'txt2img' || op.kind === 'reference' ? op.params.count ?? d.count : op.kind === 'img2img' ? op.count ?? 1 : 1;
   const job = ui.addJob({ projectId: project.id, label, count });
   const onAbort = () => job.abort.abort();
   signal?.addEventListener('abort', onAbort);
@@ -152,6 +200,35 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
         );
       }
       // sprite mode: cut out the background (checked requests do this once the check has picked the final images)
+      if (sprite.enabled && !opts?.heldForCheck) afterGenerate(project.id, saved);
+    } else if (op.kind === 'reference') {
+      const refs = op.references.slice(0, refTarget!.max);
+      const sprite = spriteOf(project);
+      const prompt = sprite.enabled ? withSpriteClause(op.params.prompt, project, 'natural') : op.params.prompt;
+      const width = op.params.width ?? d.width;
+      const height = op.params.height ?? d.height;
+      // one request per image: reference models mostly return one image, and some ignore n
+      const imgs = [];
+      for (let i = 0; i < count; i++) {
+        imgs.push(
+          ...(await backend.img2img(
+            { prompt, width, height, count: 1, model, seed: op.params.seed, image: refs[0].blob, references: refs.slice(1).map((r) => r.blob), reference: true, denoise: 0.9 },
+            { ...ctx, onProgress: (f, pv) => ctx.onProgress((i + f) / count, pv) },
+          )),
+        );
+      }
+      for (const im of imgs.slice(0, count)) {
+        saved.push(
+          await saveImage(project.id, im.blob, {
+            op: 'txt2img',
+            prompt,
+            seed: im.seed,
+            backend: conn.name,
+            model,
+            params: { width, height, references: refs.map((r) => r.id), refInput: true, ...(sprite.enabled ? { sprite: sprite.color } : {}) },
+          }),
+        );
+      }
       if (sprite.enabled && !opts?.heldForCheck) afterGenerate(project.id, saved);
     } else if (op.kind === 'img2img') {
       const denoise = op.denoise ?? d.denoise;

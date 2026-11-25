@@ -51,7 +51,7 @@ async function buildHistory(messages: Message[]): Promise<LLMMessage[]> {
       if (m.references && refIds.length)
         content.push({
           type: 'text',
-          text: `(The attached image(s) ${refIds.map((id) => `[image:${id}]`).join(', ')} are CHARACTER REFERENCES. Do not edit them. Create new images with generate_image or generate_batch and pass reference_image_ids; write the prompt for the new scene, pose and composition only, the tool adds a detailed description of the character and compares every result with the reference.)`,
+          text: `(The attached image(s) ${refIds.map((id) => `[image:${id}]`).join(', ')} are CHARACTER REFERENCES. Do not edit them. Create new images with generate_image or generate_batch and pass reference_image_ids; write the prompt for the new scene, pose and composition only, the tool adds a detailed description of the character, sends the reference image along when the image model takes reference images, and compares every result with the reference.)`,
         });
       if (content.length) out.push({ role: 'user', content });
     } else if (m.role === 'assistant') {
@@ -361,7 +361,7 @@ export async function runDirect(projectId: string, text: string, imageIds: strin
           projectId,
           role: 'assistant',
           parts: [
-            { type: 'text', text: `${batch ? `${i + 1}/${prompts.length} · ${p}` : `Generated directly (${refs.length ? 'txt2img from character reference' : src ? 'img2img' : 'txt2img'})`}${r.summary}` },
+            { type: 'text', text: `${batch ? `${i + 1}/${prompts.length} · ${p}` : `Generated directly (${refs.length ? 'from character reference' : src ? 'img2img' : 'txt2img'})`}${r.summary}` },
             ...r.images.map((im) => ({ type: 'image' as const, imageId: im.id })),
           ],
         });

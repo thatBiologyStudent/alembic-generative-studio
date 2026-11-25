@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Bot, ImagePlus, ListOrdered, Paperclip, Square, UserRound, Wand2, X } from 'lucide-react';
 import { maxRetries } from '../../db/schema';
 import type { Project } from '../../db/schema';
-import { saveImage } from '../../db/repo';
+import { saveImage, updateProject } from '../../db/repo';
 import { runAgent, runDirect } from '../../agent/runAgent';
+import { referenceMode } from '../../agent/reference';
 import { useUI } from '../../store/ui';
 import { errMsg } from '../../lib/http';
 import { Thumb } from './MessageView';
@@ -27,6 +28,20 @@ export function Composer({ project }: { project: Project }) {
     safeSet('composerAttachAs', a);
   };
   const attachments = useUI((s) => s.attachments[project.id] ?? EMPTY);
+  // which model would get the reference images (re-checked when the models or the option change)
+  const [refInfo, setRefInfo] = useState<Awaited<ReturnType<typeof referenceMode>>>();
+  const refOn = attachAs === 'reference' && attachments.length > 0;
+  useEffect(() => {
+    if (!refOn) return;
+    let live = true;
+    void referenceMode(project)
+      .then((r) => live && setRefInfo(r))
+      .catch(() => live && setRefInfo({ sendImages: false, max: 0 }));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refOn, project.id, project.imageConnId, project.imageModel, project.editConnId, project.editModel, project.defaults.refImages]);
   const busy = useUI((s) => s.busy[project.id]);
   const prefillText = useUI((s) => s.composerPrefill[project.id]);
   const { detach, clearAttachments, attach, prefill, toast } = useUI.getState();
@@ -119,9 +134,22 @@ export function Composer({ project }: { project: Project }) {
                 <UserRound size={12} /> Character reference
               </button>
             </div>
+            {attachAs === 'reference' && (
+              <label className="flex items-center gap-1.5 text-[11px] text-zinc-300" title="Models like Nano Banana, Qwen Image Edit, FLUX.2 or GPT Image keep a character much more faithfully when they see it">
+                <input type="checkbox" checked={project.defaults.refImages !== false} onChange={(e) => void updateProject(project.id, { defaults: { ...project.defaults, refImages: e.target.checked } })} />
+                Send the reference image to the model
+                {project.defaults.refImages !== false && (
+                  <span className={refInfo?.sendImages ? 'text-muted' : 'text-amber-400'}>
+                    {refInfo === undefined ? '' : refInfo.sendImages ? `· ${refInfo.model}${refInfo.max > 1 ? `, up to ${refInfo.max} references` : ''}` : '· your models don’t take reference images'}
+                  </span>
+                )}
+              </label>
+            )}
             <p className="text-[11px] leading-snug text-muted">
               {attachAs === 'reference'
-                ? `The character is described in detail and drawn from text in the scene you write (txt2img, not img2img). Each result is compared with the reference and regenerated until it matches (up to ${maxRetries(project.defaults)} retries).`
+                ? refInfo?.sendImages
+                  ? `The model sees the reference as a guide for the character and draws a new scene from what you write (not img2img: the composition is not carried over). Each result is compared with the reference and regenerated until it matches (up to ${maxRetries(project.defaults)} retries).`
+                  : `The character is described in detail and drawn from text in the scene you write (txt2img, not img2img). Each result is compared with the reference and regenerated until it matches (up to ${maxRetries(project.defaults)} retries).${project.defaults.refImages !== false ? ' For a closer match, pick a Generate or Edit model that takes reference images (Nano Banana, Qwen Image Edit, FLUX.2, GPT Image).' : ''}`
                 : mode === 'direct'
                   ? 'The first attached image is changed with your prompt (img2img).'
                   : 'The assistant can edit the attached images or use them as context.'}

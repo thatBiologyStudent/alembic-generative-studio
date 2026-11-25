@@ -63,6 +63,7 @@ export function imageModelInfo(id: string, meta: any): import('./image/types').I
   if (typeof sp.fixed_upscale_factor === 'number') info.fixedFactor = sp.fixed_upscale_factor;
   const maxImg = sp.max_output_images ?? sp.max_images ?? sp.n?.maximum;
   if (typeof maxImg === 'number' && maxImg > 0) info.maxImages = maxImg;
+  if (typeof sp.max_input_images === 'number' && sp.max_input_images > 0) info.maxInputImages = sp.max_input_images;
   if ('aspect_ratio' in sp || 'aspect_ratios' in sp) {
     info.aspectParam = true;
     const ar = sp.aspect_ratio ?? sp.aspect_ratios;

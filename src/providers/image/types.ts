@@ -17,6 +17,9 @@ export interface Img2ImgParams extends GenParams {
   denoise: number;
   /** white = repaint, black = keep */
   mask?: Blob;
+  /** character reference mode: image is a reference, not a canvas. Output uses width/height, and these extra references go along. */
+  reference?: boolean;
+  references?: Blob[];
 }
 
 export interface GenImage {
@@ -61,6 +64,8 @@ export interface ImageModelInfo {
   params?: string[];
   /** most images one request may return (provider-declared) */
   maxImages?: number;
+  /** most input/reference images one request may take (provider-declared) */
+  maxInputImages?: number;
   /** model takes a separate aspect_ratio parameter (optionally from a fixed list) */
   aspectParam?: boolean;
   aspectRatios?: string[];

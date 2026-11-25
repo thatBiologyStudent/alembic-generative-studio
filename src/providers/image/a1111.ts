@@ -173,10 +173,11 @@ export class A1111Backend implements ImageBackend {
 
   async img2img(p: Img2ImgParams, ctx?: GenContext) {
     const body = this.common(p);
-    const size = await imageSize(p.image);
+    // reference mode (instruction edit models like Qwen-Image-Edit): the output gets the requested size, every reference goes along
+    const size = p.reference ? { width: p.width, height: p.height } : await imageSize(p.image);
     body.width = Math.round(size.width / 8) * 8;
     body.height = Math.round(size.height / 8) * 8;
-    body.init_images = [await blobToBase64(await toPng(p.image))];
+    body.init_images = await Promise.all([p.image, ...(p.reference ? (p.references ?? []) : [])].map(async (b) => blobToBase64(await toPng(b))));
     body.denoising_strength = p.denoise;
     if (p.mask && this.conn.extra?.noInpaint) throw new Error(`${this.conn.name} does not support masked inpainting — use img2img instead.`);
     if (p.mask) {
