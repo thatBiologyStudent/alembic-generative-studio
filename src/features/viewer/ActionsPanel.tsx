@@ -19,6 +19,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { db, type ImageRecord, type Project } from '../../db/schema';
+import { approveImage } from '../../agent/verify';
 import { updateProject } from '../../db/repo';
 import { resolveSlot, runImageOp } from '../../agent/generate';
 import { ModelPicker } from '../chat/ModelPicker';
@@ -69,6 +70,7 @@ export function ActionsPanel(props: Props) {
   const { tab, setTab, project } = props;
   const caps = useCaps(project);
   const editCaps = useLiveQuery(async () => (await resolveSlot(project, 'edit'))?.backend.capabilities, [project]);
+  const i2iCaps = useLiveQuery(async () => (await resolveSlot(project, 'img2img'))?.backend.capabilities, [project]);
   const upTarget = useLiveQuery(() => resolveSlot(project, 'upscale'), [project]);
   const [height, setHeight] = useState(250);
 
@@ -103,7 +105,7 @@ export function ActionsPanel(props: Props) {
       <div className="min-w-0 flex-1 overflow-y-auto p-3">
         {tab === 'info' && <InfoTab {...props} caps={caps} />}
         {tab === 'edit' && <EditTab {...props} caps={editCaps} />}
-        {tab === 'img2img' && <Img2ImgTab {...props} caps={editCaps} />}
+        {tab === 'img2img' && <Img2ImgTab {...props} caps={i2iCaps} />}
         {tab === 'cutout' && <CutoutTab project={project} image={props.image} />}
         {tab === 'character' && <CharacterTab {...props} caps={caps} />}
         {tab === 'describe' && <DescribeTab {...props} caps={caps} />}
@@ -115,7 +117,7 @@ export function ActionsPanel(props: Props) {
 
 type TabProps = Props & { caps?: BackendCapabilities };
 
-function SlotRow({ project, slot, label }: { project: Project; slot: 'edit' | 'upscale'; label: string }) {
+function SlotRow({ project, slot, label }: { project: Project; slot: 'img2img' | 'edit' | 'upscale'; label: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
       <span className="shrink-0">{label}</span>
@@ -192,6 +194,15 @@ function InfoTab({ project, image }: TabProps) {
   return (
     <div className="grid grid-cols-[1fr_auto] gap-4">
       <div className="min-w-0 space-y-2 text-xs">
+        {image.params?.check === 'fail' && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-900/60 bg-red-950/30 px-2 py-1.5 text-red-100">
+            <span className="min-w-0 flex-1">Failed the check{image.params.checkNote ? `: ${image.params.checkNote}` : ''}</span>
+            <button className="btn px-2 py-0.5 text-xs" onClick={() => void approveImage(image).then(() => toast('Approved', 'success'))} title="Accept it anyway: saved like a passed image">
+              Approve anyway
+            </button>
+          </div>
+        )}
+        {image.params?.check === 'approved' && <div className="text-sky-300">Approved by you{image.params.checkNote ? ` (the check said: ${image.params.checkNote})` : ''}</div>}
         {image.prompt && (
           <div>
             <div className="mb-0.5 text-muted">Prompt</div>
@@ -337,10 +348,10 @@ function Img2ImgTab({ project, image, caps }: TabProps) {
   const [count, setCount] = useState(Math.min(4, project.defaults.count));
   const { busy, run } = useRunner();
   useEffect(() => setPrompt(image.prompt && image.op !== 'upload' ? image.prompt : ''), [image.id, image.prompt, image.op]);
-  const go = (p: string, s: number) => run(() => runImageOp(project, { kind: 'img2img', source: image, prompt: p, denoise: s, count }));
+  const go = (p: string, s: number) => run(() => runImageOp(project, { kind: 'img2img', source: image, prompt: p, denoise: s, count, slot: 'img2img' }));
   return (
     <div className="space-y-2.5">
-      <SlotRow project={project} slot="edit" label="Edit model" />
+      <SlotRow project={project} slot="img2img" label="img2img model" />
       <textarea className="input h-20" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Prompt for the new version" />
       <Row>
         {caps?.denoise && <Strength value={strength} onChange={setStrength} />}

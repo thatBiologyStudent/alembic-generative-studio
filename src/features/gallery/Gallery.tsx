@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Download, Heart, ImagePlus, MessageSquarePlus, Send, Trash2, Upload, X } from 'lucide-react';
+import { Check, Download, Heart, ImagePlus, MessageSquarePlus, Send, Trash2, Upload, X } from 'lucide-react';
+import { approveImage } from '../../agent/verify';
 import { pickForDramatis, useDramatis } from '../../lib/dramatis';
 import { db, type ImageRecord, type Project } from '../../db/schema';
 import { deleteImage, saveImage } from '../../db/repo';
@@ -148,11 +149,21 @@ const Tile = memo(function Tile({ img }: { img: ImageRecord }) {
           ✓
         </span>
       )}
+      {img.params?.check === 'approved' && (
+        <span className="absolute bottom-1.5 left-1.5 rounded bg-sky-900/80 px-1.5 py-0.5 text-[10px] text-sky-100 group-hover:hidden" title={`Approved by you${img.params.checkNote ? ` (the check said: ${img.params.checkNote})` : ''}`}>
+          ✓ approved
+        </span>
+      )}
       <div className="absolute right-1.5 bottom-1.5 left-1.5 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
         <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-200">{img.prompt}</span>
         {dramatis && (
           <IconBtn title="Use in Dramatis" onClick={(e) => (stop(e), void pickForDramatis(img.blob))}>
             <Send size={13} />
+          </IconBtn>
+        )}
+        {img.params?.check === 'fail' && (
+          <IconBtn title={`Approve anyway${img.params.checkNote ? ` (the check said: ${img.params.checkNote})` : ''}`} onClick={(e) => (stop(e), void approveImage(img).then(() => toast('Approved', 'success')))}>
+            <Check size={13} />
           </IconBtn>
         )}
         <IconBtn title="Use in chat" onClick={(e) => (stop(e), attach(img.projectId, img.id), toast('Attached to chat', 'info'))}>

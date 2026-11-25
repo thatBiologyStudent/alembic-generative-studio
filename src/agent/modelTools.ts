@@ -11,7 +11,7 @@ interface Candidate {
   fav: boolean;
 }
 
-const SLOT_LABEL: Record<ImageSlot, string> = { generate: 'Generate', edit: 'Edit', upscale: 'Upscale' };
+const SLOT_LABEL: Record<ImageSlot, string> = { generate: 'Generate', img2img: 'img2img', edit: 'Edit', upscale: 'Upscale' };
 
 /** Models across all providers that fit a slot (favourites first, then cheapest known price). */
 export async function findModels(purpose: ImageSlot, query?: string, limit = 30): Promise<{ list: Candidate[]; notes: string[] }> {

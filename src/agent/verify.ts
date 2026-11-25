@@ -1,4 +1,4 @@
-import { db, maxRetries, verifyEnabled, type ImageRecord, type Project } from '../db/schema';
+import { db, maxRetries, refRetries, refTolerance, verifyEnabled, type ImageRecord, type Project } from '../db/schema';
 import { errMsg } from '../lib/http';
 import type { GenParams } from '../providers/image/types';
 import { useUI } from '../store/ui';
@@ -48,6 +48,9 @@ const REF_FEATURES: [string, string][] = [
   ['art_style', 'art style: line art weight and colour, shading/colouring technique, rendering (flat cel vs soft glossy), level of detail, overall look of the artist/series'],
 ];
 
+/** identity score needed per strictness level (index = features allowed to differ) */
+export const REF_MIN_SCORE = [8, 7, 7, 6, 6];
+
 const REF_CHECK_SYSTEM = [
   'You check character consistency for an image generator, and you are STRICT: the goal is the SAME character drawn in the SAME art style, not a similar one.',
   'You get the REFERENCE image(s), each labelled, then the labelled GENERATED image, a written description of the reference character and an independent written description of the generated image made without seeing the reference.',
@@ -63,8 +66,8 @@ const REF_CHECK_SYSTEM = [
   ' "corrections": ["one short, positive statement per differing feature, describing what the REFERENCE shows, e.g. messy shoulder-length dark navy bob with one silver streak. Only design and style features that came out different, never expression or pose"]}',
 ].join('\n');
 
-/** Reference check: every required feature must be judged the same (or hidden), identity 8+, scene present. */
-function parseRefCheck(text: string): CheckResult {
+/** Reference check: at most `tolerance` features may differ (0 = all must match), identity 8+ (lower when tolerant), scene present. */
+function parseRefCheck(text: string, tolerance = 0): CheckResult {
   const m = /\{[\s\S]*\}/.exec(text);
   // fail closed: in reference mode an unreadable answer must not count as a match
   if (!m) return { ok: false, issues: 'the comparison gave no answer (check the chat model supports images)', skipped: 'checker gave no JSON' };
@@ -76,7 +79,8 @@ function parseRefCheck(text: string): CheckResult {
     const missing = Array.isArray(j.features) ? [] : REF_FEATURES.map(([k]) => k).filter((k) => !(k in checks));
     const score = Number(j.identity_score);
     const scored = j.identity_score !== undefined && Number.isFinite(score);
-    const ok = j.match !== false && j.match !== 'false' && j.scene_ok !== false && !differing.length && missing.length < 3 && scored && score >= 8;
+    // the checker's own match verdict only counts when strict: with tolerance, close results may pass despite small differences
+    const ok = (tolerance > 0 || (j.match !== false && j.match !== 'false')) && j.scene_ok !== false && differing.length <= tolerance && missing.length < 3 && scored && score >= REF_MIN_SCORE[tolerance];
     const corrections: string[] = Array.isArray(j.corrections) ? j.corrections.map(String).filter((c: string) => c.trim()) : [];
     // when the checker gave no corrections, use what it saw in the reference for each differing feature
     if (!corrections.length) for (const [, f] of list) if (f && (f.same === false || f.same === 'false') && f.reference) corrections.push(String(f.reference));
@@ -161,7 +165,7 @@ export async function checkImage(
           `\nJudge each of these features: ${REF_FEATURES.map(([k, d]) => `${k} (${d})`).join('; ')}.\n` +
           'Is it unmistakably the same character in the same art style, in the requested scene? Reply with the JSON only.',
       });
-      res = parseRefCheck(await askVisionParts(project, content, { signal, system: REF_CHECK_SYSTEM }));
+      res = parseRefCheck(await askVisionParts(project, content, { signal, system: REF_CHECK_SYSTEM }), refTolerance(project.defaults));
     } else {
       const text = await askVision(
         project,
@@ -191,6 +195,8 @@ export interface VerifiedResult {
   retries: number;
   /** human-readable summary for the tool result / chat */
   summary: string;
+  /** every retry was used and images still fail: the caller must not start another round on its own */
+  limitReached?: boolean;
 }
 
 /** Run checks for a batch of fresh images, showing a "checking" tile in the gallery meanwhile. */
@@ -286,7 +292,7 @@ export async function generateChecked(
       skipped ??= res.skipped;
     }
     // stop when everything passed, the retry budget is used up, or this round had no failures (provider just returned fewer images)
-    if (good.length >= count || retries >= maxRetries(project.defaults) || signal?.aborted || !lastIssues.length) break;
+    if (good.length >= count || retries >= (refs?.length ? refRetries(project.defaults) : maxRetries(project.defaults)) || signal?.aborted || !lastIssues.length) break;
     retries++;
     // mangled images usually mean wrong CFG/steps for this model: switch to the recommended values once
     if (mangled && !settingsNote) {
@@ -306,13 +312,19 @@ export async function generateChecked(
   const images = good.length ? good : rejected.slice(-count);
   if (checked) afterGenerate(project.id, images.filter((i) => i.params?.sprite));
   const summary = summarize(count, good, rejected, retries, lastIssues, skipped, checked) + settingsNote;
-  return { images, rejected: rejected.filter((r) => !images.includes(r)), retries, summary: refs?.length ? summary.replace(/the AI check/g, 'the reference comparison') : summary };
+  return {
+    images,
+    rejected: rejected.filter((r) => !images.includes(r)),
+    retries,
+    summary: refs?.length ? summary.replace(/the AI check/g, 'the reference comparison') : summary,
+    limitReached: good.length < count && !!lastIssues.length && !signal?.aborted,
+  };
 }
 
 /** img2img / edit with the same check-and-retry loop (re-runs the edit on the original source). */
 export async function editChecked(
   project: Project,
-  op: { source: ImageRecord; prompt: string; denoise?: number; count?: number; mask?: Blob },
+  op: { source: ImageRecord; prompt: string; denoise?: number; count?: number; mask?: Blob; slot?: 'img2img' | 'edit' },
   request: string,
   signal?: AbortSignal,
 ): Promise<VerifiedResult> {
@@ -348,7 +360,25 @@ export async function editChecked(
     if (fixed) prompt = fixed;
   }
   const images = good.length ? good : rejected.slice(-count);
-  return { images, rejected: rejected.filter((r) => !images.includes(r)), retries, summary: summarize(count, good, rejected, retries, lastIssues, skipped, checked) };
+  return {
+    images,
+    rejected: rejected.filter((r) => !images.includes(r)),
+    retries,
+    summary: summarize(count, good, rejected, retries, lastIssues, skipped, checked),
+    limitReached: good.length < count && !!lastIssues.length && !signal?.aborted,
+  };
+}
+
+/**
+ * The user accepts an image that failed the check: marked as approved, saved like a passed image
+ * (output folder when it only takes passed images) and cut out when it was made in sprite mode.
+ */
+export async function approveImage(img: ImageRecord): Promise<void> {
+  const params = { ...img.params, check: 'approved' };
+  await db.images.update(img.id, { params });
+  const rec = { ...img, params };
+  void autoSave(rec, 'passed');
+  if (typeof img.params?.sprite === 'string') afterGenerate(img.projectId, [rec]);
 }
 
 /** True when automatic checking will run for this project (for UI hints). */

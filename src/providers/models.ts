@@ -29,14 +29,15 @@ export const supports = (c: Connection, kind: ModelKind) => (kind === 'chat' ? !
 /** Does this model fit the slot? Unknown models fit everywhere. */
 export function fitsSlot(entry: ModelListEntry | undefined, model: string, slot: ImageSlot): boolean {
   const s = entry?.info?.[model]?.slots;
-  return !s || s.includes(slot);
+  // catalogues only know "takes an input image" (edit): img2img models are the same set
+  return !s || s.includes(slot === 'img2img' ? 'edit' : slot);
 }
 
 async function listImage(conn: Connection, slot?: ImageSlot): Promise<Omit<ModelListEntry, 'at'>> {
   const b = getImageBackend(conn);
   if (slot === 'upscale' && b.listUpscalers) {
     const list = await b.listUpscalers();
-    return { list, info: Object.fromEntries(list.map((id) => [id, { id, slots: ['upscale'] as ImageSlot[] }])) };
+    return { list, info: Object.fromEntries(list.map((id) => [id, { id, slots: ['upscale' as const] }])) };
   }
   if (b.listModelsDetailed) {
     const d = await b.listModelsDetailed();

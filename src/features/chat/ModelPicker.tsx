@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { AlertTriangle, Bot, Brush, ChevronDown, ImageIcon, Maximize2, Plus, RefreshCw, Settings, Star, X } from 'lucide-react';
+import { AlertTriangle, Bot, Brush, ChevronDown, ImageIcon, Images, Maximize2, Plus, RefreshCw, Settings, Star, X } from 'lucide-react';
 import { db, parseRef, refKey, SLOT_FIELDS, type Connection, type ImageSlot, type Project } from '../../db/schema';
 import { updateProject } from '../../db/repo';
 import { resolveSlot } from '../../agent/generate';
@@ -23,7 +23,7 @@ import { BING_SPEC, FLOW_SPEC, SidecarStatusDot } from '../settings/FlowSidecarS
 
 const PER_PROVIDER = 60;
 
-const SLOT_LABEL: Record<ImageSlot, string> = { generate: 'image', edit: 'edit', upscale: 'upscale' };
+const SLOT_LABEL: Record<ImageSlot, string> = { generate: 'image', img2img: 'img2img', edit: 'edit', upscale: 'upscale' };
 
 /**
  * Dropdown for choosing a model across all providers, with favourites.
@@ -77,10 +77,14 @@ export function ModelPicker({ project, kind, slot = 'generate', compact }: { pro
     .filter((x): x is { r: { connId: string; model: string }; c: Connection } => !!x.c && match(x.r.model, x.c) && fits(x.c, x.r.model));
   const isFav = (c: Connection, m: string) => !!favs?.[kind].includes(refKey({ connId: c.id, model: m }));
 
-  const Icon = kind === 'chat' ? Bot : slot === 'upscale' ? Maximize2 : slot === 'edit' ? Brush : ImageIcon;
+  const Icon = kind === 'chat' ? Bot : slot === 'upscale' ? Maximize2 : slot === 'edit' ? Brush : slot === 'img2img' ? Images : ImageIcon;
   const hasOwn = !!(current && (model || slot === 'upscale'));
   const fallbackText =
-    slot === 'edit'
+    slot === 'img2img'
+      ? fallback
+        ? `Same as ${project.editConnId ? 'edit' : 'generate'} (${fallback.model ?? fallback.conn.name})`
+        : 'Same as edit'
+      : slot === 'edit'
       ? fallback
         ? `Same as generate (${fallback.model ?? fallback.conn.name})`
         : 'Same as generate'

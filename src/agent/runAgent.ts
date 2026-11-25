@@ -1,4 +1,4 @@
-import { db, type GenDefaults, type ImageRecord, type Message, type Project, type ToolResult } from '../db/schema';
+import { db, maxRetries, type GenDefaults, type ImageRecord, type Message, type Project, type ToolResult } from '../db/schema';
 import { addMessage, updateProject } from '../db/repo';
 import { describeSize, parseAspect, parseResolution, sizeFor } from '../lib/size';
 import { errMsg } from '../lib/http';
@@ -134,8 +134,26 @@ async function execTool(
   request: string,
   onPartial?: (r: Omit<ToolResult, 'callId'>) => void,
   callId = '',
+  turn: Turn = { limitHit: false },
 ): Promise<ToolResult & { callId: '' }> {
   const base = { callId: '' as const, name };
+  // once a generation in this request used up its automatic retries, no new rounds until the user answers
+  if (turn.limitHit && GENERATING.has(name)) {
+    turn.refused = (turn.refused ?? 0) + 1;
+    const n = maxRetries(project.defaults);
+    return {
+      ...base,
+      content:
+        `Not run: an earlier generation in this request already used all its automatic retries (Max retries = ${n}${project.defaults.refRetries !== undefined ? `, reference mode ${project.defaults.refRetries}` : ''}) and still failed the check. ` +
+        'Do not generate again in this turn. Tell the user what is still off and suggest a fix; they can say "try again" or raise Max retries in the generation settings.',
+      isError: true,
+    };
+  }
+  const stop = (r: { limitReached?: boolean }) => {
+    if (!r.limitReached) return '';
+    turn.limitHit = true;
+    return ' RETRY LIMIT REACHED: do not generate again for this request; tell the user what is still off.';
+  };
   try {
     if (name === 'list_models') return { ...base, content: await listModelsTool(project, args) };
     if (name === 'request_model_change') {
@@ -149,7 +167,7 @@ async function execTool(
       const used = r.images[0] ? `${describeSize(r.images[0].width, r.images[0].height)}${size ? '' : ' — project default'}` : '';
       return {
         ...base,
-        content: `Generated ${r.images.length} image(s) at ${used}: ${imgList(r.images)}${r.summary}.`,
+        content: `Generated ${r.images.length} image(s) at ${used}: ${imgList(r.images)}${r.summary}.${stop(r)}`,
         imageIds: r.images.map((i) => i.id),
       };
     }
@@ -170,13 +188,18 @@ async function execTool(
           const r = await generateChecked(project, params, `${request}\n(Batch item: ${label})`, signal);
           ids.push(...r.images.map((x) => x.id));
           lines.push(`${i + 1}. ${label}: ${imgList(r.images)}${r.summary}`);
+          if (r.limitReached) turn.limitHit = true;
         } catch (e) {
           if ((e as Error).name === 'AbortError') throw e;
           lines.push(`${i + 1}. ${label}: FAILED — ${errMsg(e)}`);
         }
         onPartial?.({ name, content: `Batch progress ${i + 1}/${items.length}:\n${lines.join('\n')}`, imageIds: [...ids] });
       }
-      return { ...base, content: `Batch finished (${items.length} item(s)):\n${lines.join('\n')}`, imageIds: ids };
+      return {
+        ...base,
+        content: `Batch finished (${items.length} item(s)):\n${lines.join('\n')}${turn.limitHit ? '\nSome items used up their retries: do not generate again for this request; tell the user what is still off.' : ''}`,
+        imageIds: ids,
+      };
     }
     if (name === 'update_settings') {
       const d = project.defaults;
@@ -208,7 +231,7 @@ async function execTool(
           request,
           signal,
         );
-        return { ...base, content: `Edited [image:${src.id}] → ${imgList(r.images)}${r.summary}.`, imageIds: r.images.map((i) => i.id) };
+        return { ...base, content: `Edited [image:${src.id}] → ${imgList(r.images)}${r.summary}.${stop(r)}`, imageIds: r.images.map((i) => i.id) };
       }
       const imgs = await runImageOp(project, { kind: 'upscale', source: src, scale: num(args.scale) ?? 2 }, signal);
       return { ...base, content: `Upscaled [image:${src.id}] → ${imgList(imgs)}.`, imageIds: imgs.map((i) => i.id) };
@@ -227,6 +250,14 @@ async function ownImages(project: Project, v: any): Promise<string[]> {
   return recs.filter((r): r is ImageRecord => !!r && r.projectId === project.id).map((r) => r.id);
 }
 
+interface Turn {
+  /** a generation in this user message used up its retries */
+  limitHit: boolean;
+  /** generate calls refused because of that */
+  refused?: number;
+}
+const GENERATING = new Set(['generate_image', 'generate_batch', 'edit_image']);
+
 const num = (v: any) => (v === undefined || v === null || v === '' || isNaN(Number(v)) ? undefined : Number(v));
 const clamp = (v: number | undefined, lo: number, hi: number) => (v === undefined ? undefined : Math.max(lo, Math.min(hi, Math.round(v))));
 
@@ -244,6 +275,7 @@ export async function runAgent(projectId: string, text: string, imageIds: string
       ...(references && imageIds.length ? { references: true } : {}),
     });
 
+    const turn: Turn = { limitHit: false };
     for (let step = 0; step < MAX_STEPS; step++) {
       const project = await db.projects.get(projectId);
       if (!project) return;
@@ -309,6 +341,7 @@ export async function runAgent(projectId: string, text: string, imageIds: string
               void db.messages.update(toolMsg.id, { toolResults: [...results, { ...partial, callId: call.id }] });
             },
             call.id,
+            turn,
           );
           results.push({ ...r, callId: call.id });
         } catch (e) {
@@ -317,6 +350,15 @@ export async function runAgent(projectId: string, text: string, imageIds: string
         await db.messages.update(toolMsg.id, { toolResults: [...results] });
       }
       if (ctrl.signal.aborted) return;
+      // the model keeps asking for generations after the limit: end the turn instead of looping
+      if ((turn.refused ?? 0) >= 2) {
+        await addMessage({
+          projectId,
+          role: 'assistant',
+          parts: [{ type: 'text', text: `Stopped: this request used all its automatic retries (Max retries = ${maxRetries(project.defaults)}). Say "try again" to run another round, or raise Max retries in the generation settings.` }],
+        });
+        return;
+      }
     }
   } catch (e) {
     await addMessage({ projectId, role: 'assistant', parts: [], error: errMsg(e) });
@@ -357,7 +399,7 @@ export async function runDirect(projectId: string, text: string, imageIds: strin
         const r = refs.length
           ? await generateFromReference(project, refs, p, ctrl.signal)
           : src
-            ? await editChecked(project, { source: src, prompt: p, count: project.defaults.count }, p, ctrl.signal)
+            ? await editChecked(project, { source: src, prompt: p, count: project.defaults.count, slot: 'img2img' }, p, ctrl.signal)
             : await generateChecked(project, { prompt: p }, p, ctrl.signal);
         await addMessage({
           projectId,

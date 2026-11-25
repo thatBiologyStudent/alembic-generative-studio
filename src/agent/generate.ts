@@ -25,6 +25,7 @@ async function slotConn(project: Project, slot: ImageSlot) {
 /**
  * Which provider/model handles an operation:
  *  generate → Generate slot
+ *  img2img  → img2img slot, else the Edit slot (else Generate)
  *  edit     → Edit slot, else Generate slot
  *  upscale  → Upscale slot, else the Generate backend's built-in upscaler (A1111/SD.Next/ComfyUI/ArliAI)
  */
@@ -35,6 +36,7 @@ export async function resolveSlot(project: Project, slot: ImageSlot): Promise<Sl
     const model = own.model ?? (slot === 'upscale' ? undefined : own.conn.imageModels?.[0]);
     return { conn: own.conn, backend, model, inherited: false };
   }
+  if (slot === 'img2img') return resolveSlot(project, 'edit');
   const gen = slot === 'generate' ? undefined : await slotConn(project, 'generate');
   if (!gen) return undefined;
   const backend = getImageBackend(gen.conn);
@@ -57,6 +59,7 @@ export async function textOnlyModel(conn: Connection, model: string): Promise<bo
 
 const SLOT_HINT: Record<ImageSlot, string> = {
   generate: 'No image model selected. Pick one with the image-model picker under the chat box, or add a provider in Settings.',
+  img2img: 'No img2img or edit model selected. Pick one in the img2img tab of the image viewer, or with the picker under the chat box.',
   edit: 'No edit model selected. Pick one in the Edit or img2img tab of the image viewer.',
   upscale: 'No upscale model selected. Pick one in the Upscale tab of the image viewer.',
 };
@@ -101,7 +104,7 @@ export async function referenceLimit(t: SlotTarget): Promise<number> {
 
 /** The model that gets the reference images: the Generate model if it takes them, else the Edit model. */
 export async function referenceTarget(project: Project): Promise<ReferenceTarget | undefined> {
-  for (const slot of ['generate', 'edit'] as const) {
+  for (const slot of ['generate', 'img2img', 'edit'] as const) {
     const t = await resolveSlot(project, slot);
     if (!t) continue;
     const max = await referenceLimit(t);
@@ -125,7 +128,7 @@ type Op =
   | { kind: 'txt2img'; params: Partial<GenParams> & { prompt: string }; /** character reference image ids (recorded on the result) */ references?: string[] }
   /** character reference mode with a model that takes the reference images themselves */
   | { kind: 'reference'; params: Partial<GenParams> & { prompt: string }; references: ImageRecord[] }
-  | { kind: 'img2img'; source: ImageRecord; prompt: string; denoise?: number; mask?: Blob; count?: number; negative?: string; seed?: number }
+  | { kind: 'img2img'; source: ImageRecord; prompt: string; denoise?: number; mask?: Blob; count?: number; negative?: string; seed?: number; /** which model: the img2img tab and attachments use 'img2img', edits 'edit' (default) */ slot?: 'img2img' | 'edit' }
   | { kind: 'upscale'; source: ImageRecord; scale: number };
 
 /** Runs an image job against the project's backend, shows progress in the gallery and saves results. */
@@ -134,7 +137,7 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
   if (op.kind === 'txt2img' && !op.params.prompt?.trim()) throw new Error('The prompt was empty. Write a description of the image to generate.');
   const refTarget = op.kind === 'reference' ? await referenceTarget(project) : undefined;
   if (op.kind === 'reference' && !refTarget) throw new Error('None of your image models takes reference images. Pick one that does (e.g. Nano Banana, Qwen Image Edit, FLUX.2, GPT Image) as the Generate or Edit model.');
-  const { conn, backend, model } = refTarget ?? (await requireSlot(project, op.kind === 'txt2img' ? 'generate' : op.kind === 'img2img' ? 'edit' : 'upscale'));
+  const { conn, backend, model } = refTarget ?? (await requireSlot(project, op.kind === 'txt2img' ? 'generate' : op.kind === 'img2img' ? (op.slot ?? 'edit') : 'upscale'));
   const d = project.defaults;
   const ui = useUI.getState();
   const label =

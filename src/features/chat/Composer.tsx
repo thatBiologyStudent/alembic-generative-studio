@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Bot, ImagePlus, ListOrdered, Paperclip, Square, UserRound, Wand2, X } from 'lucide-react';
-import { maxRetries } from '../../db/schema';
+import { ArrowUp, Bot, Brush, ImageIcon, ImagePlus, Images, ListOrdered, Paperclip, Square, UserRound, Wand2, X } from 'lucide-react';
+import { maxRetries, refRetries, refTolerance, type ImageSlot } from '../../db/schema';
 import type { Project } from '../../db/schema';
 import { saveImage, updateProject } from '../../db/repo';
 import { runAgent, runDirect } from '../../agent/runAgent';
@@ -135,6 +135,7 @@ export function Composer({ project }: { project: Project }) {
                 <UserRound size={12} /> Character reference
               </button>
             </div>
+            {attachAs === 'reference' && <RefLimits project={project} />}
             {attachAs === 'reference' && (
               <label className="flex items-center gap-1.5 text-[11px] text-zinc-300" title="Models like Nano Banana, Qwen Image Edit, FLUX.2 or GPT Image keep a character much more faithfully when they see it">
                 <input type="checkbox" checked={project.defaults.refImages !== false} onChange={(e) => void updateProject(project.id, { defaults: { ...project.defaults, refImages: e.target.checked } })} />
@@ -149,8 +150,8 @@ export function Composer({ project }: { project: Project }) {
             <p className="text-[11px] leading-snug text-muted">
               {attachAs === 'reference'
                 ? refInfo?.sendImages
-                  ? `The model sees the reference as a guide for the character and draws a new scene from what you write (not img2img: the composition is not carried over). Each result is compared with the reference and regenerated until it matches (up to ${maxRetries(project.defaults)} retries).`
-                  : `The character is described in detail and drawn from text in the scene you write (txt2img, not img2img). Each result is compared with the reference and regenerated until it matches (up to ${maxRetries(project.defaults)} retries).${project.defaults.refImages !== false ? ' For a closer match, pick a Generate or Edit model that takes reference images (Nano Banana, Qwen Image Edit, FLUX.2, GPT Image).' : ''}`
+                  ? `The model sees the reference as a guide for the character and draws a new scene from what you write (not img2img: the composition is not carried over). Each result is compared with the reference and regenerated until it matches.`
+                  : `The character is described in detail and drawn from text in the scene you write (txt2img, not img2img). Each result is compared with the reference and regenerated until it matches.${project.defaults.refImages !== false ? ' For a closer match, pick a Generate or Edit model that takes reference images (Nano Banana, Qwen Image Edit, FLUX.2, GPT Image).' : ''}`
                 : mode === 'direct'
                   ? 'The first attached image is changed with your prompt (img2img).'
                   : 'The assistant can edit the attached images or use them as context.'}
@@ -161,7 +162,7 @@ export function Composer({ project }: { project: Project }) {
       <RecommendedHint project={project} compact />
       <div className="mb-2 flex min-w-0 items-center gap-1.5">
         <ModelPicker project={project} kind="chat" />
-        <ModelPicker project={project} kind="image" />
+        <SlotChooser project={project} />
       </div>
       <div className="rounded-xl border border-line bg-bg focus-within:border-accent">
         <textarea
@@ -249,6 +250,63 @@ export function Composer({ project }: { project: Project }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+const SLOTS: { id: Exclude<ImageSlot, 'upscale'>; label: string; title: string; icon: React.ReactNode }[] = [
+  { id: 'generate', label: 'Txt2img', title: 'Text to image: new images from your prompt', icon: <ImageIcon size={11} /> },
+  { id: 'img2img', label: 'Img2img', title: 'Image to image: attached images in Direct mode, the img2img tab and reference images (empty = the Edit model)', icon: <Images size={11} /> },
+  { id: 'edit', label: 'Edit', title: 'Edits and inpainting (empty = the Txt2img model)', icon: <Brush size={11} /> },
+];
+
+/** Which image model the picker next to it sets: Txt2img, Img2img or Edit. */
+function SlotChooser({ project }: { project: Project }) {
+  const [slot, setSlot] = useState<Exclude<ImageSlot, 'upscale'>>(() => (['generate', 'img2img', 'edit'].includes(safeGet('composerSlot') ?? '') ? (safeGet('composerSlot') as any) : 'generate'));
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <div className="flex shrink-0 rounded-md border border-line p-0.5 text-[10px]">
+        {SLOTS.map((s) => (
+          <button
+            key={s.id}
+            title={s.title}
+            onClick={() => (setSlot(s.id), safeSet('composerSlot', s.id))}
+            className={`flex items-center gap-0.5 rounded px-1.5 py-0.5 ${slot === s.id ? 'bg-zinc-700 text-white' : 'text-muted hover:text-zinc-200'}`}
+          >
+            {s.icon}
+            <span className="hidden sm:inline">{s.label}</span>
+          </button>
+        ))}
+      </div>
+      <ModelPicker key={slot} project={project} kind="image" slot={slot} />
+    </div>
+  );
+}
+
+const TOLERANCE = ['Strict: all features must match', 'Close: 1 feature may differ', 'Relaxed: 2 may differ', 'Loose: 3 may differ', 'Very loose: 4 may differ'];
+
+/** Reference mode's own retry limit and how close a result has to be. */
+function RefLimits({ project }: { project: Project }) {
+  const d = project.defaults;
+  const tol = refTolerance(d);
+  const set = (p: Partial<typeof d>) => void updateProject(project.id, { defaults: { ...d, ...p } });
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+      <label className="flex items-center gap-1" title="Regeneration rounds per request in reference mode (separate from Max retries)">
+        Retries
+        <select className="rounded border border-line bg-bg px-1 py-0.5 text-[11px] text-zinc-200" value={refRetries(d)} onChange={(e) => set({ refRetries: +e.target.value })}>
+          {[0, 1, 2, 3, 4, 5, 6, 8].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex min-w-0 items-center gap-1.5" title="How many of the 9 compared features (hair shape, hair colour, eyes, face, body, outfit shape, outfit details, accessories, art style) may differ">
+        Match
+        <input type="range" min={0} max={4} step={1} value={tol} onChange={(e) => set({ refTolerance: +e.target.value })} className="w-20 accent-violet-500" aria-label="Reference strictness" />
+        <span className="text-zinc-300">{TOLERANCE[tol]}</span>
+      </label>
     </div>
   );
 }

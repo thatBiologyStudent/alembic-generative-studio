@@ -18,6 +18,10 @@ export interface GenDefaults {
   sprite?: SpriteSettings;
   /** character reference mode: also send the reference image to models that take reference images (default on) */
   refImages?: boolean;
+  /** character reference mode: its own retry limit (default: maxRetries) */
+  refRetries?: number;
+  /** character reference mode: how many of the compared features may differ (0 = strict, all must match) */
+  refTolerance?: number;
 }
 
 export type SpriteMode = 'manual' | 'same' | 'auto';
@@ -38,6 +42,8 @@ export const DEFAULT_SPRITE: SpriteSettings = { enabled: false, color: '#00ff00'
 
 export const verifyEnabled = (d: GenDefaults) => d.verify ?? true;
 export const maxRetries = (d: GenDefaults) => Math.max(0, Math.min(5, d.maxRetries ?? 2));
+export const refTolerance = (d: GenDefaults) => Math.max(0, Math.min(4, d.refTolerance ?? 0));
+export const refRetries = (d: GenDefaults) => Math.max(0, Math.min(8, d.refRetries ?? maxRetries(d)));
 
 export interface Character {
   id: string;
@@ -56,7 +62,10 @@ export interface Project {
   /** "Generate" slot (txt2img; also edits/upscales when their slots are empty) */
   imageConnId?: string;
   imageModel?: string;
-  /** "Edit" slot: img2img, inpaint, variations. Empty = use the generate slot. */
+  /** "img2img" slot: whole-image transforms and reference images. Empty = use the Edit slot, then the generate slot. */
+  img2imgConnId?: string;
+  img2imgModel?: string;
+  /** "Edit" slot: edits, inpaint, variations. Empty = use the generate slot. */
   editConnId?: string;
   editModel?: string;
   /** "Upscale" slot. Empty = the generate backend's built-in upscaler (A1111/ComfyUI). */
@@ -147,10 +156,14 @@ export interface Connection {
   createdAt: number;
 }
 
-export type ImageSlot = 'generate' | 'edit' | 'upscale';
+export type ImageSlot = 'generate' | 'img2img' | 'edit' | 'upscale';
 
-export const SLOT_FIELDS: Record<ImageSlot, { conn: 'imageConnId' | 'editConnId' | 'upscaleConnId'; model: 'imageModel' | 'editModel' | 'upscaleModel' }> = {
+export const SLOT_FIELDS: Record<
+  ImageSlot,
+  { conn: 'imageConnId' | 'img2imgConnId' | 'editConnId' | 'upscaleConnId'; model: 'imageModel' | 'img2imgModel' | 'editModel' | 'upscaleModel' }
+> = {
   generate: { conn: 'imageConnId', model: 'imageModel' },
+  img2img: { conn: 'img2imgConnId', model: 'img2imgModel' },
   edit: { conn: 'editConnId', model: 'editModel' },
   upscale: { conn: 'upscaleConnId', model: 'upscaleModel' },
 };

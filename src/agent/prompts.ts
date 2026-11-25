@@ -79,7 +79,7 @@ export function systemPrompt(
       lines.push(
         `Sampling settings: ${r.model} is meant to run with ${describeRecommended(r)} (${r.exact ? `published by ${r.source}` : r.source}).` +
           (m.any ? ` The project is set to CFG ${d.cfg} and ${d.steps} steps, which is outside that: pass steps/cfg close to the recommended values on generate_image, and tell the user (they can fix the default with update_settings).` : '') +
-          ' Wrong CFG or steps make images mangled, burnt, over-saturated, noisy or mushy. When results look like that, fix steps/cfg first instead of rewriting the prompt.',
+          ' Wrong CFG or steps make images mangled, burnt, over-saturated, noisy or mushy. The automatic retries already switch to the recommended values when that happens; if it is still mangled afterwards, tell the user instead of generating again.',
       );
     }
     if (!slots.canEdit)
@@ -102,6 +102,9 @@ export function systemPrompt(
         `Automatic check: every generated image is reviewed by a vision check against the request and regenerated (up to ${maxRetries(d)} retries) if it does not match. ` +
           'The tool result says whether images passed. Do not regenerate passed images yourself; if images still fail after the retries, tell the user what is off and suggest a fix instead of retrying again.',
       );
+    lines.push(
+      'Retries are automatic (also in character reference mode). Never start another generation yourself because a result failed the check: when a tool result says RETRY LIMIT REACHED, stop and report. Further generate calls in the same turn are refused.',
+    );
   } else {
     lines.push('', 'No image model is selected yet. If the user asks for images, tell them to pick an image model with the picker under the chat box.');
   }
