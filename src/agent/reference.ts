@@ -6,6 +6,12 @@ import { extractCharacterPrompt } from './prompts';
 import { generateChecked, type VerifiedResult } from './verify';
 import { askVision } from './vision';
 
+/** The prompt an image was made from, when it was made in the studio (not for uploads, where "prompt" is the file name). */
+function sourceOf(rec: ImageRecord | undefined): { prompt: string; model?: string } | undefined {
+  if (!rec || rec.op === 'upload' || !rec.prompt?.trim()) return undefined;
+  return { prompt: rec.prompt.trim(), model: rec.model };
+}
+
 // verbose descriptions of reference images, so retries and batch lines don't pay for the same extraction again
 const described = new Map<string, Promise<string>>();
 
@@ -17,12 +23,21 @@ export async function describeReferences(project: Project, refIds: string[], sig
   const onAbort = () => job.abort.abort();
   signal?.addEventListener('abort', onAbort);
   try {
+    const recs = await db.images.bulkGet(refIds);
     return await Promise.all(
-      refIds.map((id) => {
+      refIds.map((id, i) => {
         const key = `${project.id}:${id}:${style}:${project.llmModel ?? ''}`;
         let p = described.get(key);
         if (!p) {
-          p = askVision(project, id, extractCharacterPrompt(style, 'verbose'), undefined, { signal: job.abort.signal });
+          // made in the studio: the original prompt names the art style, outfit and character terms that made this image
+          const src = sourceOf(recs[i]);
+          const instruction = src
+            ? `${extractCharacterPrompt(style, 'verbose')}\n\nThis image was generated from the prompt below${src.model ? ` (model ${src.model})` : ''}. ` +
+              'Use it to get names and terms right, and keep its art-style and quality keywords (artist/series style, line art, shading, medium) in your description, because they are what made this look. ' +
+              'Leave out its pose, background and camera words. Describe only what is actually visible: where the image and the prompt disagree, the image wins.\n\n' +
+              `Original prompt: ${src.prompt}`
+            : extractCharacterPrompt(style, 'verbose');
+          p = askVision(project, id, instruction, undefined, { signal: job.abort.signal });
           p.catch(() => described.delete(key));
           described.set(key, p);
         }
@@ -81,15 +96,28 @@ export async function generateFromReference(
   const descriptions = await describeReferences(project, refIds, signal);
   const checklist = descriptions.join('\n\n');
   const mode = await referenceMode(project);
+  const all = await db.images.bulkGet(refIds);
+  const gen = await resolveSlot(project, 'generate');
+  let r: VerifiedResult | undefined;
+  let usedModel = gen?.model;
   if (mode.sendImages) {
-    const recs = (await db.images.bulkGet(refIds.slice(0, mode.max))).filter((r): r is ImageRecord => !!r);
-    if (recs.length)
-      return generateChecked(project, { ...params, prompt: referenceImagePrompt(scene, descriptions.slice(0, recs.length)) }, request ?? scene, signal, {
+    const recs = all.slice(0, mode.max).filter((x): x is ImageRecord => !!x);
+    if (recs.length) {
+      usedModel = mode.model;
+      r = await generateChecked(project, { ...params, prompt: referenceImagePrompt(scene, descriptions.slice(0, recs.length)) }, request ?? scene, signal, {
         references: refIds,
         checklist,
         sendImages: recs,
       });
+    }
   }
-  const style = (await resolveSlot(project, 'generate'))?.backend.capabilities.promptStyle ?? 'natural';
-  return generateChecked(project, { ...params, prompt: referencePrompt(scene, descriptions, style) }, request ?? scene, signal, { references: refIds, checklist });
+  if (!r) {
+    const style = gen?.backend.capabilities.promptStyle ?? 'natural';
+    r = await generateChecked(project, { ...params, prompt: referencePrompt(scene, descriptions, style) }, request ?? scene, signal, { references: refIds, checklist });
+  }
+  // the art style comes mostly from the model: say so when the reference was made with a different one
+  const madeWith = [...new Set(all.map((x) => sourceOf(x)?.model).filter((m): m is string => !!m))];
+  if (madeWith.length && usedModel && !madeWith.includes(usedModel))
+    r.summary += ` · the reference was made with ${madeWith.join(', ')}; generating with that model gives the closest art style`;
+  return r;
 }

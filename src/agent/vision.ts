@@ -1,6 +1,7 @@
 import { db, type Project } from '../db/schema';
 import { blobToDataUrl, resizeBlob } from '../lib/image';
 import { getLLM } from '../providers/llm';
+import type { LLMPart } from '../providers/llm/types';
 import { resolveLLMConn } from './generate';
 
 const dataUrlCache = new Map<string, string>();
@@ -29,6 +30,15 @@ export async function askVision(
   const url = await imageDataUrl(imageId, opts?.maxEdge ?? 1280);
   if (!url) throw new Error('Image not found');
   return askVisionUrl(project, url, instruction, onText, opts);
+}
+
+/** A vision question built from parts, e.g. a label before every image so the model can't mix them up. */
+export async function askVisionParts(project: Project, content: LLMPart[], opts?: { signal?: AbortSignal; system?: string }): Promise<string> {
+  const conn = await resolveLLMConn(project);
+  const model = project.llmModel || conn.chatModels?.[0];
+  if (!model) throw new Error(`Choose a model for ${conn.name} in the model picker.`);
+  const res = await getLLM(conn).chat({ model, system: opts?.system, signal: opts?.signal, messages: [{ role: 'user', content }] });
+  return res.text.trim();
 }
 
 /** Same as askVision, for images given as data URLs (several are sent in order, before the instruction). */

@@ -4,7 +4,9 @@ import type { GenParams } from '../providers/image/types';
 import { useUI } from '../store/ui';
 import { runImageOp } from './generate';
 import { autoSave } from '../lib/output';
-import { askVision, askVisionUrl, imageDataUrl } from './vision';
+import { askVision, askVisionParts, imageDataUrl } from './vision';
+import { extractCharacterPrompt } from './prompts';
+import type { LLMPart } from '../providers/llm/types';
 import { afterGenerate } from './sprite';
 
 export interface CheckResult {
@@ -29,42 +31,57 @@ const CHECK_SYSTEM = [
   'Answer ONLY with JSON: {"match": true|false, "issues": "short reason when false", "fixed_prompt": "a better prompt that avoids the issues, when false"}',
 ].join('\n');
 
+/** Features every reference comparison must judge, so the checker can't skip the inconvenient ones (hair, art style). */
+const REF_FEATURES: [string, string][] = [
+  ['hair_shape', 'hair length, volume and hairstyle silhouette (e.g. short messy bob vs long twin tails)'],
+  ['hair_colour', 'hair colour, streaks and highlights'],
+  ['eyes', 'eye colour and eye shape'],
+  ['face', 'face shape, proportions and characteristic features (fangs, sharp teeth, marks)'],
+  ['body_age', 'body type, proportions and apparent age'],
+  ['outfit_shape', 'outfit silhouette: which garments (skirt vs shorts, coat length, sleeves)'],
+  ['outfit_details', 'outfit colours, patterns, trims and motifs'],
+  ['accessories', 'signature accessories (hat, gloves, jewellery, weapons, props)'],
+  ['art_style', 'art style: line art weight and colour, shading/colouring technique, rendering (flat cel vs soft glossy), level of detail, overall look of the artist/series'],
+];
+
 const REF_CHECK_SYSTEM = [
-  'You check character consistency for an image generator, and you are STRICT: the goal is the SAME character, not a similar one.',
-  'You get one or more REFERENCE images, then (last) a newly GENERATED image, plus the user request, the prompt that was sent and a written description of the reference character.',
+  'You check character consistency for an image generator, and you are STRICT: the goal is the SAME character drawn in the SAME art style, not a similar one.',
+  'You get the REFERENCE image(s), each labelled, then the labelled GENERATED image, a written description of the reference character and an independent written description of the generated image made without seeing the reference.',
   'The new image is meant to show the same character in a NEW scene: pose, expression, background, camera, framing and lighting are supposed to differ. Never count those against it.',
-  'Work feature by feature. For every identifying feature that is visible in both images, note what the reference shows and what the generated image shows, and whether they are the same:',
-  'face shape and proportions, eye colour and eye shape, eyebrows, hair colour (exact shade), hair length, haircut and fringe/parting, skin tone, apparent age, body type, species features (ears, horns, tail, wings), scars/marks/tattoos and their placement,',
-  'every outfit piece (cut, length, colour shade, pattern, trim), accessories and weapons, and the art style (medium, line art, shading, proportions).',
-  'A different haircut, a different shade, a missing or added garment, a different pattern, a different face or a different art style means NOT the same. "Close", "similar" or "same vibe" is a lookalike and a FAIL.',
-  'Ask yourself: would someone who knows this character say without hesitation that it is them? If you hesitate, it fails.',
-  'Features hidden by the new pose or framing are skipped, not failed. Also fail it when the scene the user asked for is missing.',
-  'Answer ONLY with JSON:',
-  '{"features": [{"feature": "hair", "reference": "short silver bob, straight fringe", "generated": "...", "same": true|false}, ...],',
-  ' "identity_score": 0-10 (10 = unmistakably the same character, 7 = a lookalike), "scene_ok": true|false, "match": true|false,',
-  ' "issues": "the features that differ, when false",',
-  ' "corrections": ["one short, positive statement per differing feature, describing what the REFERENCE shows, e.g. straight-cut silver bob ending at the jaw"]}',
+  'Judge every feature below separately. Look at the images AND compare the two written descriptions: when they describe a feature differently (e.g. "short" vs "long", "twin tails" vs "bob", "thick black line art" vs "soft painterly shading"), it is NOT the same.',
+  'A different hairstyle or hair length, a different shade, a missing, added or replaced garment, a different face or a different art style means NOT the same. "Close", "similar", "same theme" or "same vibe" is a lookalike and a FAIL.',
+  'A feature that is hidden in the generated image gets "same": null (not judged), never true.',
+  'Answer ONLY with JSON, every key present:',
+  '{"checks": {"<feature>": {"reference": "...", "generated": "...", "same": true|false|null}, ... one entry for each of: ' + REF_FEATURES.map(([k]) => k).join(', ') + '},',
+  ' "identity_score": 0-10 (10 = unmistakably the same character in the same style, 6 = same theme but a different character or style), "scene_ok": true|false,',
+  ' "issues": "the features that differ",',
+  ' "corrections": ["one short, positive statement per differing feature, describing what the REFERENCE shows, e.g. messy shoulder-length dark navy bob with one silver streak"]}',
 ].join('\n');
 
-/** Reference check: passes only when the checker scores it 8+ and lists no differing feature. */
+/** Reference check: every required feature must be judged the same (or hidden), identity 8+, scene present. */
 function parseRefCheck(text: string): CheckResult {
   const m = /\{[\s\S]*\}/.exec(text);
-  if (!m) return { ok: true, issues: '', skipped: 'checker gave no JSON' };
+  // fail closed: in reference mode an unreadable answer must not count as a match
+  if (!m) return { ok: false, issues: 'the comparison gave no answer (check the chat model supports images)', skipped: 'checker gave no JSON' };
   try {
     const j = JSON.parse(m[0]);
-    const differing: string[] = Array.isArray(j.features)
-      ? j.features.filter((f: any) => f && (f.same === false || f.same === 'false')).map((f: any) => String(f.feature ?? ''))
-      : [];
+    const checks = j.checks && typeof j.checks === 'object' ? j.checks : {};
+    const list: [string, any][] = Array.isArray(j.features) ? j.features.map((f: any) => [String(f?.feature ?? ''), f]) : Object.entries(checks);
+    const differing = list.filter(([, f]) => f && (f.same === false || f.same === 'false')).map(([k]) => k.replace(/_/g, ' '));
+    const missing = Array.isArray(j.features) ? [] : REF_FEATURES.map(([k]) => k).filter((k) => !(k in checks));
     const score = Number(j.identity_score);
     const scored = j.identity_score !== undefined && Number.isFinite(score);
-    const ok = j.match !== false && j.match !== 'false' && j.scene_ok !== false && !differing.length && (!scored || score >= 8);
+    const ok = j.match !== false && j.match !== 'false' && j.scene_ok !== false && !differing.length && missing.length < 3 && scored && score >= 8;
     const corrections: string[] = Array.isArray(j.corrections) ? j.corrections.map(String).filter((c: string) => c.trim()) : [];
+    // when the checker gave no corrections, use what it saw in the reference for each differing feature
+    if (!corrections.length) for (const [, f] of list) if (f && (f.same === false || f.same === 'false') && f.reference) corrections.push(String(f.reference));
     const why =
+      (differing.length ? `differs from the reference: ${differing.join(', ')}` : '') ||
       String(j.issues ?? '').trim() ||
-      (differing.length ? `differs from the reference: ${differing.join(', ')}` : j.scene_ok === false ? 'the requested scene is missing' : 'a lookalike, not the same character');
+      (j.scene_ok === false ? 'the requested scene is missing' : !scored ? 'no identity score given' : missing.length >= 3 ? 'the comparison skipped required features' : 'a lookalike, not the same character');
     return { ok, issues: ok ? '' : `${why}${scored ? ` (identity ${score}/10)` : ''}`, corrections: ok ? undefined : corrections, score: scored ? score : undefined };
   } catch {
-    return { ok: true, issues: '', skipped: 'checker gave invalid JSON' };
+    return { ok: false, issues: 'the comparison gave an unreadable answer', skipped: 'checker gave invalid JSON' };
   }
 }
 
@@ -93,17 +110,26 @@ export async function checkImage(
   let res: CheckResult;
   try {
     if (references?.length) {
-      const urls = (await Promise.all([...references, img.id].map((id) => imageDataUrl(id, 1024)))).filter((u): u is string => !!u);
-      const text = await askVisionUrl(
-        project,
-        urls,
-        `The first ${urls.length - 1} image(s) are the REFERENCE, the last one is the GENERATED image.\nUser request (the new scene): ${request || prompt}\nPrompt sent to the generator: ${prompt}\n` +
-          (checklist ? `\nWritten description of the reference character (a checklist; the reference image decides):\n${checklist}\n` : '') +
-          '\nIs it unmistakably the same character as the reference, in the requested scene? Compare feature by feature and reply with the JSON only.',
-        undefined,
-        { signal, system: REF_CHECK_SYSTEM },
-      );
-      res = parseRefCheck(text);
+      // 1. describe the generated image blind (without the reference), so the comparison isn't steered towards "same"
+      const blind = await askVision(project, img.id, extractCharacterPrompt('natural', 'verbose', references.length > 1), undefined, { maxEdge: 1024, signal });
+      // 2. compare, with every image labelled
+      const content: LLMPart[] = [];
+      for (const [i, id] of references.entries()) {
+        const url = await imageDataUrl(id, 1024);
+        if (url) content.push({ type: 'text', text: `REFERENCE image ${i + 1}:` }, { type: 'image', dataUrl: url });
+      }
+      const gen = await imageDataUrl(img.id, 1024);
+      if (gen) content.push({ type: 'text', text: 'GENERATED image:' }, { type: 'image', dataUrl: gen });
+      content.push({
+        type: 'text',
+        text:
+          `User request (the new scene): ${request || prompt}\nPrompt sent to the generator: ${prompt}\n` +
+          (checklist ? `\nDescription of the REFERENCE character:\n${checklist}\n` : '') +
+          `\nIndependent description of the GENERATED image (written without seeing the reference):\n${blind}\n` +
+          `\nJudge each of these features: ${REF_FEATURES.map(([k, d]) => `${k} (${d})`).join('; ')}.\n` +
+          'Is it unmistakably the same character in the same art style, in the requested scene? Reply with the JSON only.',
+      });
+      res = parseRefCheck(await askVisionParts(project, content, { signal, system: REF_CHECK_SYSTEM }));
     } else {
       const text = await askVision(
         project,
@@ -116,7 +142,7 @@ export async function checkImage(
     }
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
-    res = { ok: true, issues: '', skipped: errMsg(e) };
+    res = references?.length ? { ok: false, issues: `the comparison could not run: ${errMsg(e)}`, skipped: errMsg(e) } : { ok: true, issues: '', skipped: errMsg(e) };
   }
   await db.images.update(img.id, {
     params: { ...img.params, check: res.skipped ? 'skipped' : res.ok ? 'pass' : 'fail', ...(res.issues ? { checkNote: res.issues } : {}) },
