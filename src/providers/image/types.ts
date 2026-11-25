@@ -66,6 +66,8 @@ export interface ImageModelInfo {
   maxImages?: number;
   /** most input/reference images one request may take (provider-declared) */
   maxInputImages?: number;
+  /** provider-published default steps / CFG for this model */
+  defaults?: import('../../lib/recommended').ProviderDefaults;
   /** model takes a separate aspect_ratio parameter (optionally from a fixed list) */
   aspectParam?: boolean;
   aspectRatios?: string[];
@@ -89,4 +91,6 @@ export interface ImageBackend {
   /** upscaler names for the Upscale slot (A1111 upscalers, ComfyUI upscale models) */
   listUpscalers?(): Promise<string[]>;
   listSamplers?(): Promise<string[]>;
+  /** recommended steps / CFG / sampler and limits the provider publishes for a model (ArliAI) */
+  modelDefaults?(model: string): Promise<import('../../lib/recommended').ProviderDefaults | undefined>;
 }

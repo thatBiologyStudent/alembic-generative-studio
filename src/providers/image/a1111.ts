@@ -1,5 +1,7 @@
 import type { Connection } from '../../db/schema';
-import { ApiError, apiJson, trimUrl, via } from '../../lib/http';
+import { ApiError, apiFetch, apiJson, checkProxy, trimUrl, via } from '../../lib/http';
+import { PROXY_PATH } from '../../lib/base';
+import type { ProviderDefaults } from '../../lib/recommended';
 import { base64ToBlob, blobToBase64, imageSize, toPng } from '../../lib/image';
 import type { BackendCapabilities, GenContext, GenImage, GenParams, ImageBackend, Img2ImgParams, UpscaleOptions } from './types';
 
@@ -55,6 +57,54 @@ export class A1111Backend implements ImageBackend {
       // hosted variants (ArliAI) don't document a model list: rely on hand-added names, but still surface bad keys
       if (this.conn.extra?.checkpointField === 'top' && (e as any).kind !== 'auth') return [];
       throw e;
+    }
+  }
+
+  /** the provider's model list with whatever limits/recommendations it includes (ArliAI), cached per connection */
+  private static catalog = new Map<string, Promise<any[]>>();
+  private async catalogEntries(): Promise<any[]> {
+    let p = A1111Backend.catalog.get(this.conn.id);
+    if (!p) {
+      p = apiJson<any[]>(this.u(`/sdapi/v1/sd-models`), { headers: this.headers() }).then((j) => (Array.isArray(j) ? j : []));
+      p.catch(() => A1111Backend.catalog.delete(this.conn.id));
+      A1111Backend.catalog.set(this.conn.id, p);
+    }
+    return p;
+  }
+
+  /**
+   * Recommended steps / CFG / sampler and the step/CFG caps for a model. ArliAI publishes them per model
+   * (recommendedSampler, maxSteps, maxCfgScale): from the API model list when it includes them, else from the
+   * public model page through the app's proxy (the page has no CORS headers).
+   */
+  async modelDefaults(model: string): Promise<ProviderDefaults | undefined> {
+    const read = (m: any): ProviderDefaults | undefined => {
+      const r = m?.recommendedSampler ?? m?.recommended_sampler;
+      const out: ProviderDefaults = {
+        steps: num(r?.steps ?? m?.recommendedSteps),
+        cfg: num(r?.cfg_scale ?? m?.recommendedCfg ?? m?.recommendedCfgScale),
+        sampler: typeof (r?.sampler_name ?? m?.recommendedSamplerName) === 'string' ? (r?.sampler_name ?? m?.recommendedSamplerName) : undefined,
+        maxSteps: num(m?.maxSteps),
+        maxCfg: num(m?.maxCfgScale),
+      };
+      return out.steps || out.cfg !== undefined || out.maxSteps || out.maxCfg ? out : undefined;
+    };
+    try {
+      const hit = (await this.catalogEntries()).find((m) => [m?.title, m?.model_name, m?.name, m?.modelName].includes(model));
+      const d = read(hit);
+      if (d?.steps || d?.cfg !== undefined) return d;
+    } catch {
+      /* no model list on this plan */
+    }
+    if (this.conn.preset !== 'arliai' || !(await checkProxy())) return undefined;
+    try {
+      const page = `https://www.arliai.com/models/image-models/${encodeURIComponent(model)}`;
+      const html = (await (await apiFetch(`${location.origin}${PROXY_PATH}?url=${encodeURIComponent(page)}`)).text()).replace(/\\"/g, '"');
+      const rec = /"recommendedSampler":(\{[^{}]*\})/.exec(html)?.[1];
+      const pick = (k: string) => num(new RegExp(`"${k}":([\\d.]+)`).exec(html)?.[1]);
+      return read({ recommendedSampler: rec ? JSON.parse(rec) : undefined, maxSteps: pick('maxSteps'), maxCfgScale: pick('maxCfgScale') });
+    } catch {
+      return undefined;
     }
   }
 
@@ -224,3 +274,5 @@ export class SDNextBackend extends A1111Backend {
     return super.upscale(image, scale, ctx, opts);
   }
 }
+
+const num = (v: any): number | undefined => (v === undefined || v === null || v === '' || isNaN(Number(v)) ? undefined : Number(v));

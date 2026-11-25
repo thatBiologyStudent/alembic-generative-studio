@@ -13,6 +13,7 @@ import { generateFromReference } from './reference';
 import { listModelsTool, requestModelChange } from './modelTools';
 import { systemPrompt } from './prompts';
 import { buildTools } from './tools';
+import { recommendedFor } from '../lib/recommended';
 
 const MAX_VISION_IMAGES = 6;
 const MAX_STEPS = 12;
@@ -261,10 +262,11 @@ export async function runAgent(projectId: string, text: string, imageIds: string
       let res;
       const editTarget = caps ? await resolveSlot(project, 'edit') : undefined;
       const canUpscale = caps ? !!(await resolveSlot(project, 'upscale')) : false;
+      const rec = caps?.steps ? await recommendedFor(project).catch(() => undefined) : undefined;
       try {
         res = await llm.chat({
           model,
-          system: systemPrompt(project, imgConn, caps, { canEdit: !!editTarget?.backend.capabilities.img2img, canUpscale }),
+          system: systemPrompt(project, imgConn, caps, { canEdit: !!editTarget?.backend.capabilities.img2img, canUpscale, rec }),
           messages: history,
           tools: caps ? buildTools(caps, { edit: editTarget?.backend.capabilities, canUpscale }) : undefined,
           signal: ctrl.signal,

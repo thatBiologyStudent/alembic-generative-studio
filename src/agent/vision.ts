@@ -32,6 +32,11 @@ export async function askVision(
   return askVisionUrl(project, url, instruction, onText, opts);
 }
 
+/** A text-only question to the project's chat model. */
+export async function askText(project: Project, instruction: string, opts?: { signal?: AbortSignal; system?: string }): Promise<string> {
+  return askVisionParts(project, [{ type: 'text', text: instruction }], opts);
+}
+
 /** A vision question built from parts, e.g. a label before every image so the model can't mix them up. */
 export async function askVisionParts(project: Project, content: LLMPart[], opts?: { signal?: AbortSignal; system?: string }): Promise<string> {
   const conn = await resolveLLMConn(project);

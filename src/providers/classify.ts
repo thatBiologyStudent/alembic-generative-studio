@@ -64,6 +64,15 @@ export function imageModelInfo(id: string, meta: any): import('./image/types').I
   const maxImg = sp.max_output_images ?? sp.max_images ?? sp.n?.maximum;
   if (typeof maxImg === 'number' && maxImg > 0) info.maxImages = maxImg;
   if (typeof sp.max_input_images === 'number' && sp.max_input_images > 0) info.maxInputImages = sp.max_input_images;
+  // NanoGPT: {"guidance_scale": {"min", "max", "default"}, "num_inference_steps": {...}}
+  const gs = sp.guidance_scale, st = sp.num_inference_steps;
+  if ((gs && typeof gs === 'object' && typeof gs.default === 'number') || (st && typeof st === 'object' && typeof st.default === 'number'))
+    info.defaults = {
+      cfg: typeof gs?.default === 'number' ? gs.default : undefined,
+      steps: typeof st?.default === 'number' ? st.default : undefined,
+      maxCfg: typeof gs?.max === 'number' ? gs.max : undefined,
+      maxSteps: typeof st?.max === 'number' ? st.max : undefined,
+    };
   if ('aspect_ratio' in sp || 'aspect_ratios' in sp) {
     info.aspectParam = true;
     const ar = sp.aspect_ratio ?? sp.aspect_ratios;

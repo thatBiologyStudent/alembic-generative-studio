@@ -8,6 +8,7 @@ import { askVision, askVisionParts, imageDataUrl } from './vision';
 import { extractCharacterPrompt } from './prompts';
 import type { LLMPart } from '../providers/llm/types';
 import { afterGenerate } from './sprite';
+import { describeRecommended, mismatch, recommendedFor } from '../lib/recommended';
 
 export interface CheckResult {
   ok: boolean;
@@ -19,6 +20,8 @@ export interface CheckResult {
   corrections?: string[];
   /** reference mode: identity score 0-10 */
   score?: number;
+  /** the image is mangled (melted, burnt, noisy, mushy): usually wrong CFG/steps, not the prompt */
+  artefacts?: boolean;
   /** the check itself could not run (no vision model, bad JSON, …) — treated as a pass */
   skipped?: string;
 }
@@ -28,7 +31,8 @@ const CHECK_SYSTEM = [
   'You get one generated image, the user request and the prompt that was sent to the generator.',
   'Decide whether the image actually delivers the request: the requested subject(s), count of subjects, key attributes (colours, clothing, species, pose, setting, style), and any text that was asked for.',
   'Ignore small artistic differences and things the request did not specify. Fail it for missing/wrong subjects, wrong key attributes, badly broken anatomy, or heavy artefacts.',
-  'Answer ONLY with JSON: {"match": true|false, "issues": "short reason when false", "fixed_prompt": "a better prompt that avoids the issues, when false"}',
+  'Set "artefacts" to true when the image itself is mangled: melted or smeared shapes, burnt or over-saturated colours, heavy noise, mushy blur, garbled anatomy everywhere. That is usually caused by wrong sampler settings, not the prompt.',
+  'Answer ONLY with JSON: {"match": true|false, "artefacts": true|false, "issues": "short reason when false", "fixed_prompt": "a better prompt that avoids the issues, when false"}',
 ].join('\n');
 
 /** Features every reference comparison must judge, so the checker can't skip the inconvenient ones (hair, art style). */
@@ -36,7 +40,7 @@ const REF_FEATURES: [string, string][] = [
   ['hair_shape', 'hair length, volume and hairstyle silhouette (e.g. short messy bob vs long twin tails)'],
   ['hair_colour', 'hair colour, streaks and highlights'],
   ['eyes', 'eye colour and eye shape'],
-  ['face', 'face shape, proportions and characteristic features (fangs, sharp teeth, marks)'],
+  ['face', 'face shape, proportions and permanent features (fangs, marks); NOT the expression, which may change with the scene'],
   ['body_age', 'body type, proportions and apparent age'],
   ['outfit_shape', 'outfit silhouette: which garments (skirt vs shorts, coat length, sleeves)'],
   ['outfit_details', 'outfit colours, patterns, trims and motifs'],
@@ -54,8 +58,9 @@ const REF_CHECK_SYSTEM = [
   'Answer ONLY with JSON, every key present:',
   '{"checks": {"<feature>": {"reference": "...", "generated": "...", "same": true|false|null}, ... one entry for each of: ' + REF_FEATURES.map(([k]) => k).join(', ') + '},',
   ' "identity_score": 0-10 (10 = unmistakably the same character in the same style, 6 = same theme but a different character or style), "scene_ok": true|false,',
+  ' "artefacts": true|false (true when the image itself is mangled: melted or smeared shapes, burnt colours, heavy noise, mushy blur; usually wrong sampler settings),',
   ' "issues": "the features that differ",',
-  ' "corrections": ["one short, positive statement per differing feature, describing what the REFERENCE shows, e.g. messy shoulder-length dark navy bob with one silver streak"]}',
+  ' "corrections": ["one short, positive statement per differing feature, describing what the REFERENCE shows, e.g. messy shoulder-length dark navy bob with one silver streak. Only design and style features that came out different, never expression or pose"]}',
 ].join('\n');
 
 /** Reference check: every required feature must be judged the same (or hidden), identity 8+, scene present. */
@@ -79,7 +84,8 @@ function parseRefCheck(text: string): CheckResult {
       (differing.length ? `differs from the reference: ${differing.join(', ')}` : '') ||
       String(j.issues ?? '').trim() ||
       (j.scene_ok === false ? 'the requested scene is missing' : !scored ? 'no identity score given' : missing.length >= 3 ? 'the comparison skipped required features' : 'a lookalike, not the same character');
-    return { ok, issues: ok ? '' : `${why}${scored ? ` (identity ${score}/10)` : ''}`, corrections: ok ? undefined : corrections, score: scored ? score : undefined };
+    const artefacts = j.artefacts === true || j.artefacts === 'true';
+    return { ok: ok && !artefacts, issues: ok && !artefacts ? '' : `${artefacts ? 'mangled image; ' : ''}${why}${scored ? ` (identity ${score}/10)` : ''}`, corrections: ok ? undefined : corrections, score: scored ? score : undefined, artefacts };
   } catch {
     return { ok: false, issues: 'the comparison gave an unreadable answer', skipped: 'checker gave invalid JSON' };
   }
@@ -90,11 +96,37 @@ function parseCheck(text: string): CheckResult {
   if (!m) return { ok: true, issues: '', skipped: 'checker gave no JSON' };
   try {
     const j = JSON.parse(m[0]);
-    const ok = j.match === true || j.match === 'true' || j.ok === true;
-    return { ok, issues: ok ? '' : String(j.issues ?? j.reason ?? 'does not match the request'), fixedPrompt: typeof j.fixed_prompt === 'string' && j.fixed_prompt.trim() ? j.fixed_prompt.trim() : undefined };
+    const artefacts = j.artefacts === true || j.artefacts === 'true';
+    const ok = (j.match === true || j.match === 'true' || j.ok === true) && !artefacts;
+    return {
+      ok,
+      issues: ok ? '' : `${artefacts ? 'mangled image; ' : ''}${String(j.issues ?? j.reason ?? 'does not match the request')}`,
+      fixedPrompt: typeof j.fixed_prompt === 'string' && j.fixed_prompt.trim() ? j.fixed_prompt.trim() : undefined,
+      artefacts,
+    };
   } catch {
     return { ok: true, issues: '', skipped: 'checker gave invalid JSON' };
   }
+}
+
+const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+function overlap(a: string, b: string) {
+  const x = words(a), y = words(b);
+  let n = 0;
+  for (const w of x) if (y.has(w)) n++;
+  return n / Math.max(1, Math.min(x.size, y.size));
+}
+
+/** Adds new corrections, replacing older ones about the same thing; keeps the 6 newest. */
+function mergeCorrections(list: string[], add: string[]) {
+  for (const raw of add) {
+    const c = raw.trim().replace(/[.;\s]+$/, '');
+    if (!c) continue;
+    const same = list.findIndex((x) => overlap(x, c) >= 0.6);
+    if (same >= 0) list.splice(same, 1);
+    list.push(c);
+  }
+  if (list.length > 6) list.splice(0, list.length - 6);
 }
 
 /** Lets the project's chat model look at an image and judge it against the request. */
@@ -212,10 +244,14 @@ export async function generateChecked(
     checklist?: string;
     /** send the reference images themselves to a model that takes them */
     sendImages?: ImageRecord[];
+    /** reference mode: writes the next attempt's prompt from the corrections collected so far */
+    rewrite?: (corrections: string[]) => Promise<string>;
   },
 ): Promise<VerifiedResult> {
   const count = params.count ?? project.defaults.count;
   const refs = opts?.references;
+  let gp = params;
+  let settingsNote = '';
   // reference mode keeps the full character description and adds what came out different, instead of letting the checker rewrite the prompt
   const corrections: string[] = [];
   const checked = await canCheck(project, refs);
@@ -228,12 +264,13 @@ export async function generateChecked(
   while (true) {
     const need = count - good.length;
     const imgs = opts?.sendImages?.length
-      ? await runImageOp(project, { kind: 'reference', params: { ...params, prompt, count: need }, references: opts.sendImages }, signal, { heldForCheck: checked })
-      : await runImageOp(project, { kind: 'txt2img', params: { ...params, prompt, count: need }, references: refs }, signal, { heldForCheck: checked });
+      ? await runImageOp(project, { kind: 'reference', params: { ...gp, prompt, count: need }, references: opts.sendImages }, signal, { heldForCheck: checked })
+      : await runImageOp(project, { kind: 'txt2img', params: { ...gp, prompt, count: need }, references: refs }, signal, { heldForCheck: checked });
     if (!checked) return { images: imgs, rejected: [], retries: 0, summary: '' };
     const results = await checkAll(project, imgs, request, prompt, signal, refs, opts?.checklist);
     lastIssues = [];
     let fixed: string | undefined;
+    let mangled = false;
     for (const { img, res } of results) {
       if (res.ok) {
         good.push(img);
@@ -242,22 +279,33 @@ export async function generateChecked(
       else {
         rejected.push(img);
         lastIssues.push(res.issues);
+        if (res.artefacts) mangled = true;
         fixed ??= res.fixedPrompt;
-        for (const c of res.corrections ?? []) if (!corrections.some((x) => x.toLowerCase() === c.toLowerCase())) corrections.push(c);
+        mergeCorrections(corrections, res.corrections ?? []);
       }
       skipped ??= res.skipped;
     }
     // stop when everything passed, the retry budget is used up, or this round had no failures (provider just returned fewer images)
     if (good.length >= count || retries >= maxRetries(project.defaults) || signal?.aborted || !lastIssues.length) break;
     retries++;
+    // mangled images usually mean wrong CFG/steps for this model: switch to the recommended values once
+    if (mangled && !settingsNote) {
+      const rec = await recommendedFor(project).catch(() => undefined);
+      const cur = { steps: gp.steps ?? project.defaults.steps, cfg: gp.cfg ?? project.defaults.cfg };
+      if (rec && mismatch(rec, cur).any) {
+        gp = { ...gp, ...(rec.steps ? { steps: rec.steps } : {}), ...(rec.cfg !== undefined ? { cfg: rec.cfg } : {}) };
+        settingsNote = ` · images came out mangled at CFG ${cur.cfg} / ${cur.steps} steps, so the retries used ${describeRecommended(rec)} (${rec.exact ? `recommended by ${rec.source}` : rec.source})`;
+      }
+    }
     if (refs?.length) {
-      if (corrections.length) prompt = `${params.prompt}\n\nMust match the character exactly: ${corrections.slice(-12).join('; ')}.`;
+      if (corrections.length)
+        prompt = opts?.rewrite ? await opts.rewrite(corrections) : `Must match exactly: ${corrections.join('; ')}.\n\n${params.prompt}`;
     } else if (fixed) prompt = fixed;
   }
   // nothing passed: still hand back the latest attempt so the user sees something
   const images = good.length ? good : rejected.slice(-count);
   if (checked) afterGenerate(project.id, images.filter((i) => i.params?.sprite));
-  const summary = summarize(count, good, rejected, retries, lastIssues, skipped, checked);
+  const summary = summarize(count, good, rejected, retries, lastIssues, skipped, checked) + settingsNote;
   return { images, rejected: rejected.filter((r) => !images.includes(r)), retries, summary: refs?.length ? summary.replace(/the AI check/g, 'the reference comparison') : summary };
 }
 

@@ -1,12 +1,13 @@
 import { maxRetries, verifyEnabled, type Connection, type Project } from '../db/schema';
 import type { BackendCapabilities } from '../providers/image/types';
 import { describeSize } from '../lib/size';
+import { describeRecommended, mismatch, type Recommended } from '../lib/recommended';
 
 export function systemPrompt(
   project: Project,
   conn: Connection | undefined,
   caps: BackendCapabilities | undefined,
-  slots: { canEdit: boolean; canUpscale: boolean } = { canEdit: true, canUpscale: true },
+  slots: { canEdit: boolean; canUpscale: boolean; rec?: Recommended & { model: string } } = { canEdit: true, canUpscale: true },
 ): string {
   const d = project.defaults;
   const lines = [
@@ -72,6 +73,15 @@ export function systemPrompt(
         'When they want it to stick ("from now on", "always", "make that the default"), call update_settings. Otherwise keep the project settings. ' +
         'The tool result states the size actually produced (some backends only support certain sizes) — mention it if it differs from what was asked.',
     );
+    if (caps.steps && slots.rec) {
+      const r = slots.rec;
+      const m = mismatch(r, d);
+      lines.push(
+        `Sampling settings: ${r.model} is meant to run with ${describeRecommended(r)} (${r.exact ? `published by ${r.source}` : r.source}).` +
+          (m.any ? ` The project is set to CFG ${d.cfg} and ${d.steps} steps, which is outside that: pass steps/cfg close to the recommended values on generate_image, and tell the user (they can fix the default with update_settings).` : '') +
+          ' Wrong CFG or steps make images mangled, burnt, over-saturated, noisy or mushy. When results look like that, fix steps/cfg first instead of rewriting the prompt.',
+      );
+    }
     if (!slots.canEdit)
       lines.push(
         'Editing existing images is currently NOT possible: the generate model only works from text and no Edit model is selected (so there is no edit_image tool yet). ' +
@@ -146,7 +156,8 @@ export function extractCharacterPrompt(style: 'tags' | 'natural', detail: Detail
       ? 'There are several characters in this image. Write a reusable text-to-image prompt for EACH of them that recreates that character in new images.'
       : 'Analyse the main character in this image and write a reusable text-to-image prompt that recreates the SAME character in new images.',
     CHARACTER_DETAIL[detail],
-    'Do NOT describe the pose, background, camera or lighting of this specific image — only what identifies the character and the style.',
+    'Do NOT describe the pose, facial expression or mood, background, camera or lighting of this specific image — only the permanent features that identify the character, and the style (fangs or sharp teeth are a feature, a grin is an expression).',
+    'Only describe what is there: no negations like "no tattoos" or "no visible ears".',
     style === 'tags'
       ? `Format: comma-separated Stable Diffusion tags/phrases, most important first${detail === 'simple' ? ' (about 15 tags)' : detail === 'verbose' ? ' (as many as needed, grouped head to toe)' : ''}.`
       : `Format: natural language${detail === 'simple' ? ', two or three sentences' : detail === 'verbose' ? ', dense paragraphs, no bullet lists' : ', one dense paragraph, no lists'}.`,

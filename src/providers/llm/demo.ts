@@ -21,6 +21,15 @@ export class DemoProvider implements LLMProvider {
 
   async chat(req: ChatRequest): Promise<ChatResponse> {
     const last = req.messages[req.messages.length - 1];
+    if (req.system?.includes('You write prompts for an image generator')) {
+      // offline stand-in for the reference prompt writer: must-fix items first, then the scene
+      const t = last?.role === 'user' ? last.content.map((p) => (p.type === 'text' ? p.text : '')).join(' ') : '';
+      const fix = /MUST-FIX[^\n]*\n((?:- .*\n?)+)/.exec(t)?.[1].replace(/\n?- /g, '; ').replace(/^; /, '').trim();
+      const scene = /SCENE:\n([\s\S]*)$/.exec(t)?.[1].trim() ?? '';
+      const text = `${fix ? `Must match the character exactly: ${fix}. ` : ''}demo character, ${scene}`;
+      await this.stream(text, req);
+      return { text, toolCalls: [] };
+    }
     if (req.system?.includes('character consistency')) {
       // offline stand-in for the reference comparison: "lookalike" in the request fails until the corrections are in the prompt
       const t = last?.role === 'user' ? last.content.map((p) => (p.type === 'text' ? p.text : '')).join(' ') : '';
@@ -39,6 +48,8 @@ export class DemoProvider implements LLMProvider {
       const prompt = /Prompt sent to the generator: (.*)/.exec(t)?.[1] ?? '';
       let text = '{"match": true}';
       if (/always-fail/i.test(t)) text = '{"match": false, "issues": "demo: forced failure (always-fail)", "fixed_prompt": "' + prompt.replace(/"/g, '') + ' (retry)"}';
+      else if (/mangled-test/i.test(t) && !/\(fixed\)/.test(prompt))
+        text = '{"match": false, "artefacts": true, "issues": "demo: melted, burnt image (mangled-test)", "fixed_prompt": "' + prompt.replace(/"/g, '') + ' (fixed)"}';
       else if (/fail-once/i.test(t) && !/\(fixed\)/.test(prompt))
         text = '{"match": false, "issues": "demo: first attempt rejected (fail-once)", "fixed_prompt": "' + prompt.replace(/"/g, '') + ' (fixed)"}';
       await this.stream(text, req);

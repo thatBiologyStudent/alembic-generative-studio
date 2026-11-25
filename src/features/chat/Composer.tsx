@@ -9,6 +9,7 @@ import { useUI } from '../../store/ui';
 import { errMsg } from '../../lib/http';
 import { Thumb } from './MessageView';
 import { ModelPicker } from './ModelPicker';
+import { RecommendedHint } from '../workspace/RecommendedHint';
 
 const EMPTY: string[] = [];
 
@@ -157,6 +158,7 @@ export function Composer({ project }: { project: Project }) {
           </div>
         </div>
       )}
+      <RecommendedHint project={project} compact />
       <div className="mb-2 flex min-w-0 items-center gap-1.5">
         <ModelPicker project={project} kind="chat" />
         <ModelPicker project={project} kind="image" />
