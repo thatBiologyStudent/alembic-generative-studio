@@ -148,6 +148,7 @@ export async function generateFromReference(
   signal?: AbortSignal,
   params?: Partial<GenParams>,
   request?: string,
+  pose?: string,
 ): Promise<VerifiedResult> {
   const descriptions = await describeReferences(project, refIds, signal);
   const checklist = descriptions.join('\n\n');
@@ -167,6 +168,7 @@ export async function generateFromReference(
         checklist,
         sendImages: recs,
         rewrite: write,
+        pose,
       });
     }
   }
@@ -175,7 +177,7 @@ export async function generateFromReference(
     // A1111-style backends understand (term:1.3) attention weights
     const weights = style === 'tags' && ['a1111', 'sdnext', 'comfyui', 'civitai'].includes(gen?.conn.imageApi ?? '');
     const write = (corrections?: string[]) => composeReferencePrompt(project, scene, descriptions, { style, weights, corrections, signal });
-    r = await generateChecked(project, { ...params, prompt: await write() }, request ?? scene, signal, { references: refIds, checklist, rewrite: write });
+    r = await generateChecked(project, { ...params, prompt: await write() }, request ?? scene, signal, { references: refIds, checklist, rewrite: write, pose });
   }
   // the art style comes mostly from the model: say so when the reference was made with a different one
   const madeWith = [...new Set(all.map((x) => sourceOf(x)?.model).filter((m): m is string => !!m))];

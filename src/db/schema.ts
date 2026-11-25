@@ -24,6 +24,8 @@ export interface GenDefaults {
   refTolerance?: number;
   /** style preset (id) added to every new txt2img prompt in this project */
   stylePreset?: string;
+  /** pose references: scale and centre the figure to fill the frame (default on) */
+  poseFit?: boolean;
   /** steps / CFG for the img2img and Edit models (their models often want other values than the txt2img model); unset = steps/cfg above */
   sampling?: Partial<Record<'img2img' | 'edit', { steps: number; cfg: number }>>;
 }
@@ -113,10 +115,12 @@ export interface Message {
   error?: string;
   /** user message: the attached images are character references (redraw the character from text), not edit sources */
   references?: boolean;
+  /** user message: a pose reference (image id) was active */
+  pose?: string;
   createdAt: number;
 }
 
-export type ImageOp = 'txt2img' | 'img2img' | 'inpaint' | 'upscale' | 'upload' | 'cutout';
+export type ImageOp = 'txt2img' | 'img2img' | 'inpaint' | 'upscale' | 'upload' | 'cutout' | 'pose';
 
 export interface ImageRecord {
   id: string;

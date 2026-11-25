@@ -33,6 +33,8 @@ export class A1111Backend implements ImageBackend {
       seed: true,
       denoise: true,
       promptStyle: 'tags',
+      // ControlNet: ArliAI's /v1/control, or the A1111 / Forge ControlNet extension
+      pose: !x.noControl,
     };
   }
 
@@ -217,8 +219,47 @@ export class A1111Backend implements ImageBackend {
     return out.slice(0, total);
   }
 
-  txt2img(p: GenParams, ctx?: GenContext) {
-    return this.runN('/sdapi/v1/txt2img', this.common(p), p.count ?? 1, ctx);
+  async txt2img(p: GenParams, ctx?: GenContext) {
+    if (!p.pose) return this.runN('/sdapi/v1/txt2img', this.common(p), p.count ?? 1, ctx);
+    const image = await blobToBase64(await toPng(p.pose));
+    const model = await this.poseModel(p.model || this.conn.imageModels?.[0]);
+    if (this.hosted) {
+      // ArliAI: POST /v1/control with one ControlNet unit; the skeleton is already a control map (no preprocessor)
+      const body = { ...this.common(p), unit_type: 'controlnet', control: [{ unit_type: 'controlnet', process: '', model, image, strength: 1, start: 0, end: 1 }] };
+      return this.runN('/v1/control', body, p.count ?? 1, ctx);
+    }
+    const unit = { enabled: true, image, input_image: image, module: 'none', model, weight: 1, resize_mode: 'Crop and Resize', pixel_perfect: true, control_mode: 'Balanced' };
+    return this.runN('/sdapi/v1/txt2img', { ...this.common(p), alwayson_scripts: { controlnet: { args: [unit] } } }, p.count ?? 1, ctx);
+  }
+
+  private get hosted() {
+    return this.conn.extra?.checkpointField === 'top';
+  }
+
+  /** The OpenPose ControlNet model to use: SDXL-family checkpoints get an XL one when available. */
+  private static poseModels = new Map<string, Promise<string[]>>();
+  private async poseModel(checkpoint?: string): Promise<string> {
+    let p = A1111Backend.poseModels.get(this.conn.id);
+    if (!p) {
+      p = (async () => {
+        const j: any = await apiJson(this.u(this.hosted ? '/v1/control-models' : '/controlnet/model_list'), { headers: this.headers() });
+        const list: any[] = Array.isArray(j) ? j : j.model_list ?? j.models ?? j.data ?? Object.values(j).find(Array.isArray) ?? [];
+        return list.map((m) => (typeof m === 'string' ? m : m.name ?? m.model_name ?? m.title ?? m.id)).filter(Boolean);
+      })();
+      p.catch(() => A1111Backend.poseModels.delete(this.conn.id));
+      A1111Backend.poseModels.set(this.conn.id, p);
+    }
+    let list: string[] = [];
+    try {
+      list = (await p).filter((m) => /open\s*pose/i.test(m));
+    } catch {
+      list = [];
+    }
+    const xl = /(xl|pony|illustrious|noob|animagine)/i.test(checkpoint ?? '');
+    const pick = list.find((m) => /xl/i.test(m) === xl) ?? list[0];
+    if (pick) return pick;
+    if (this.hosted) return xl || !checkpoint ? 'OpenPose XL' : 'OpenPose';
+    throw new Error(`${this.conn.name} has no OpenPose ControlNet model installed (ControlNet extension → models).`);
   }
 
   async img2img(p: Img2ImgParams, ctx?: GenContext) {

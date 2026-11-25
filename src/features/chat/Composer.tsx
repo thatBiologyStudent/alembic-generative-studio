@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Bot, Brush, ImageIcon, ImagePlus, Images, ListOrdered, Palette, Paperclip, Square, UserRound, Wand2, X } from 'lucide-react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { Accessibility, ArrowUp, Bot, Brush, ImageIcon, ImagePlus, Images, ListOrdered, Palette, Paperclip, Square, UserRound, Wand2, X } from 'lucide-react';
 import { useStyles } from '../../lib/styles';
-import { maxRetries, refRetries, refTolerance, type ImageSlot } from '../../db/schema';
+import { db, maxRetries, refRetries, refTolerance, type ImageSlot } from '../../db/schema';
 import type { Project } from '../../db/schema';
 import { saveImage, updateProject } from '../../db/repo';
 import { runAgent, runDirect } from '../../agent/runAgent';
 import { referenceMode } from '../../agent/reference';
+import { importPoseFile } from '../../agent/pose';
 import { useUI } from '../../store/ui';
 import { errMsg } from '../../lib/http';
 import { Thumb } from './MessageView';
@@ -35,6 +37,7 @@ export function Composer({ project }: { project: Project }) {
   // which model slot the image picker (and the settings warning) shows
   const [pickSlot, setPickSlot] = useState<PickSlot>(() => (['generate', 'img2img', 'edit'].includes(safeGet('composerSlot') ?? '') ? (safeGet('composerSlot') as PickSlot) : 'generate'));
   const attachments = useUI((s) => s.attachments[project.id] ?? EMPTY);
+  const poseId = useUI((s) => s.poses[project.id]);
   // which model would get the reference images (re-checked when the models or the option change)
   const [refInfo, setRefInfo] = useState<Awaited<ReturnType<typeof referenceMode>>>();
   const refOn = attachAs === 'reference' && attachments.length > 0;
@@ -72,6 +75,17 @@ export function Composer({ project }: { project: Project }) {
 
   const addFiles = async (files: Iterable<File>) => {
     for (const f of files) {
+      // pose files (3D Openpose Editor scenes, OpenPose JSON) become the active pose reference
+      if (f.name.toLowerCase().endsWith('.json') || f.type === 'application/json') {
+        try {
+          const rec = await importPoseFile(project.id, f, project.defaults.width / project.defaults.height);
+          useUI.getState().setPose(project.id, rec.id);
+          toast(`Pose loaded (experimental): ${rec.params?.label ?? f.name}. It is used for every new image until you remove it.`, 'success');
+        } catch (e) {
+          toast(`Could not read ${f.name} as a pose: ${errMsg(e)}`);
+        }
+        continue;
+      }
       if (!f.type.startsWith('image/')) continue;
       try {
         const rec = await saveImage(project.id, f, { op: 'upload', prompt: f.name });
@@ -90,8 +104,8 @@ export function Composer({ project }: { project: Project }) {
     const imgs = [...attachments];
     clearAttachments(project.id);
     const refs = attachAs === 'reference' && imgs.length > 0;
-    if (mode === 'agent') await runAgent(project.id, t, imgs, refs);
-    else await runDirect(project.id, t, imgs, batch, refs);
+    if (mode === 'agent') await runAgent(project.id, t, imgs, refs, poseId);
+    else await runDirect(project.id, t, imgs, batch, refs, poseId);
   };
 
   const setModeP = (m: 'agent' | 'direct') => {
@@ -110,6 +124,7 @@ export function Composer({ project }: { project: Project }) {
         else void addFiles(e.dataTransfer.files);
       }}
     >
+      {poseId && <PoseChip project={project} poseId={poseId} />}
       {!!attachments.length && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {attachments.map((id) => (
@@ -195,8 +210,8 @@ export function Composer({ project }: { project: Project }) {
           className="block max-h-56 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-sm outline-none placeholder:text-zinc-600"
         />
         <div className="flex items-center gap-1 px-2 pb-2">
-          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (addFiles(e.target.files ?? []), (e.target.value = ''))} />
-          <button className="btn-ghost" title="Attach images" onClick={() => fileRef.current?.click()}>
+          <input ref={fileRef} type="file" accept="image/*,.json,application/json" multiple className="hidden" onChange={(e) => (addFiles(e.target.files ?? []), (e.target.value = ''))} />
+          <button className="btn-ghost" title="Attach images, or a pose file (.json from the 3D Openpose Editor or OpenPose, experimental)" onClick={() => fileRef.current?.click()}>
             <Paperclip size={15} />
           </button>
           {!!project.characters.length && (
@@ -364,6 +379,33 @@ function RefLimits({ project }: { project: Project }) {
         <input type="range" min={0} max={4} step={1} value={tol} onChange={(e) => set({ refTolerance: +e.target.value })} className="w-20 accent-violet-500" aria-label="Reference strictness" />
         <span className="text-zinc-300">{TOLERANCE[tol]}</span>
       </label>
+    </div>
+  );
+}
+
+/** The active pose reference: applied to every new image (ControlNet, reference image or text) until removed. */
+function PoseChip({ project, poseId }: { project: Project; poseId: string }) {
+  const rec = useLiveQuery(() => db.images.get(poseId), [poseId]);
+  const fit = project.defaults.poseFit !== false;
+  if (rec === undefined) return null;
+  return (
+    <div className="mb-2 flex items-center gap-2 rounded-md border border-line px-2 py-1.5">
+      <Thumb imageId={poseId} projectId={project.id} size="sm" />
+      <div className="min-w-0 flex-1 text-[11px] leading-snug">
+        <div className="flex items-center gap-1 text-zinc-200">
+          <Accessibility size={12} /> Pose reference
+          <span className="rounded bg-amber-500/15 px-1 py-px text-[9px] font-medium tracking-wide text-amber-300 uppercase" title="Not fully tested yet: results and provider support may change">Experimental</span>
+          <span className="truncate text-muted">· {rec?.params?.label ?? rec?.prompt ?? 'skeleton image'}</span>
+        </div>
+        <div className="text-muted">Used for every new image: ControlNet where the model has it, otherwise as a reference image or described in words.</div>
+        <label className="mt-0.5 flex items-center gap-1 text-muted" title="Scale and centre the figure to fill the frame; off = keep the position and size from the pose file">
+          <input type="checkbox" checked={fit} onChange={(e) => void updateProject(project.id, { defaults: { ...project.defaults, poseFit: e.target.checked } })} />
+          Fit the figure to the frame
+        </label>
+      </div>
+      <button className="rounded-full p-1 text-zinc-400 hover:bg-red-600 hover:text-white" onClick={() => useUI.getState().setPose(project.id, undefined)} aria-label="Remove pose" title="Remove pose">
+        <X size={12} />
+      </button>
     </div>
   );
 }

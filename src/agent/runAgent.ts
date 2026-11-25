@@ -49,6 +49,11 @@ async function buildHistory(messages: Message[]): Promise<LLMMessage[]> {
         }
       }
       const refIds = m.parts.filter((p) => p.type === 'image').map((p) => (p as any).imageId as string);
+      if (m.pose)
+        content.push({
+          type: 'text',
+          text: '(A pose reference is active for this message: it is applied automatically to every generate_image / generate_batch call. Describe the subject and scene; the pose is taken care of.)',
+        });
       if (m.references && refIds.length)
         content.push({
           type: 'text',
@@ -163,7 +168,9 @@ async function execTool(
     if (name === 'generate_image') {
       const { size, params } = genParams(project, args);
       const refs = await ownImages(project, args.reference_image_ids);
-      const r = refs.length ? await generateFromReference(project, refs, params.prompt, signal, params, request) : await generateChecked(project, params, request, signal);
+      const r = refs.length
+        ? await generateFromReference(project, refs, params.prompt, signal, params, request, turn.pose)
+        : await generateChecked(project, params, request, signal, { pose: turn.pose });
       const used = r.images[0] ? `${describeSize(r.images[0].width, r.images[0].height)}${size ? '' : ' — project default'}` : '';
       return {
         ...base,
@@ -185,7 +192,9 @@ async function execTool(
         const label = it.label || it.name || `item ${i + 1}`;
         try {
           const { params } = genParams(project, { aspect_ratio: args.aspect_ratio, resolution: args.resolution, negative_prompt: args.negative_prompt, count: args.count_per_item, ...it });
-          const r = await generateChecked(project, params, `${request}\n(Batch item: ${label})`, signal);
+          const refs = await ownImages(project, it.reference_image_ids ?? args.reference_image_ids);
+          const req = `${request}\n(Batch item: ${label})`;
+          const r = refs.length ? await generateFromReference(project, refs, params.prompt, signal, params, req, turn.pose) : await generateChecked(project, params, req, signal, { pose: turn.pose });
           ids.push(...r.images.map((x) => x.id));
           lines.push(`${i + 1}. ${label}: ${imgList(r.images)}${r.summary}`);
           if (r.limitReached) turn.limitHit = true;
@@ -255,6 +264,8 @@ interface Turn {
   limitHit: boolean;
   /** generate calls refused because of that */
   refused?: number;
+  /** pose reference for every generation in this message */
+  pose?: string;
 }
 const GENERATING = new Set(['generate_image', 'generate_batch', 'edit_image']);
 
@@ -262,7 +273,7 @@ const num = (v: any) => (v === undefined || v === null || v === '' || isNaN(Numb
 const clamp = (v: number | undefined, lo: number, hi: number) => (v === undefined ? undefined : Math.max(lo, Math.min(hi, Math.round(v))));
 
 /** Sends the user's message and runs the tool loop until the model stops calling tools. */
-export async function runAgent(projectId: string, text: string, imageIds: string[], references = false) {
+export async function runAgent(projectId: string, text: string, imageIds: string[], references = false, pose?: string) {
   const ui = useUI.getState();
   if (ui.busy[projectId]) return;
   const ctrl = new AbortController();
@@ -273,9 +284,10 @@ export async function runAgent(projectId: string, text: string, imageIds: string
       role: 'user',
       parts: [...imageIds.map((id) => ({ type: 'image' as const, imageId: id })), ...(text.trim() ? [{ type: 'text' as const, text }] : [])],
       ...(references && imageIds.length ? { references: true } : {}),
+      ...(pose ? { pose } : {}),
     });
 
-    const turn: Turn = { limitHit: false };
+    const turn: Turn = { limitHit: false, pose };
     for (let step = 0; step < MAX_STEPS; step++) {
       const project = await db.projects.get(projectId);
       if (!project) return;
@@ -373,7 +385,7 @@ export async function runAgent(projectId: string, text: string, imageIds: string
  * batch = every non-empty line is its own prompt, generated one after another.
  * The automatic check still runs when a chat model is selected and checking is on.
  */
-export async function runDirect(projectId: string, text: string, imageIds: string[], batch = false, references = false) {
+export async function runDirect(projectId: string, text: string, imageIds: string[], batch = false, references = false, pose?: string) {
   const project = await db.projects.get(projectId);
   if (!project) return;
   const ui = useUI.getState();
@@ -389,6 +401,7 @@ export async function runDirect(projectId: string, text: string, imageIds: strin
         { type: 'text', text: batch ? `🎨 Batch of ${prompts.length}:\n${prompts.map((p, i) => `${i + 1}. ${p}`).join('\n')}` : `🎨 ${text}` },
       ],
       ...(references && imageIds.length ? { references: true } : {}),
+      ...(pose ? { pose } : {}),
     });
     const refs = references ? imageIds.slice(0, 4) : [];
     const src = !refs.length && imageIds.length ? await db.images.get(imageIds[0]) : undefined;
@@ -397,10 +410,10 @@ export async function runDirect(projectId: string, text: string, imageIds: strin
       const p = prompts[i];
       try {
         const r = refs.length
-          ? await generateFromReference(project, refs, p, ctrl.signal)
+          ? await generateFromReference(project, refs, p, ctrl.signal, undefined, undefined, pose)
           : src
             ? await editChecked(project, { source: src, prompt: p, count: project.defaults.count, slot: 'img2img' }, p, ctrl.signal)
-            : await generateChecked(project, { prompt: p }, p, ctrl.signal);
+            : await generateChecked(project, { prompt: p }, p, ctrl.signal, { pose });
         await addMessage({
           projectId,
           role: 'assistant',

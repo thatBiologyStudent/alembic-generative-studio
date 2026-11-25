@@ -37,6 +37,9 @@ interface UIState {
   viewing: Record<string, string | undefined>;
   /** composer attachments (image ids), per project */
   attachments: Record<string, string[]>;
+  /** active pose reference (pose image id), per project: applied to every new image until removed */
+  poses: Record<string, string | undefined>;
+  setPose(projectId: string, imageId?: string): void;
   /** composer prefill text, per project */
   composerPrefill: Record<string, string | undefined>;
   /** streaming assistant text, keyed by message id */
@@ -84,6 +87,10 @@ export const useUI = create<UIState>((set, get) => ({
   toasts: [],
   viewing: {},
   attachments: {},
+  poses: {},
+  setPose(projectId, imageId) {
+    set((s) => ({ poses: { ...s.poses, [projectId]: imageId } }));
+  },
   composerPrefill: {},
   streaming: {},
   busy: {},

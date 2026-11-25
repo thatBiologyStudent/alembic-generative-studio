@@ -7,6 +7,7 @@ import type { GenParams, ImageBackend } from '../providers/image/types';
 import { useUI } from '../store/ui';
 import { afterGenerate, spriteNegative, spriteOf, withSpriteClause } from './sprite';
 import { activeStyle, withStyle } from '../lib/styles';
+import { POSE_IMAGE_NOTE, poseFor, withPoseText } from './pose';
 
 export interface SlotTarget {
   conn: Connection;
@@ -128,9 +129,16 @@ export async function resolveLLMConn(project: Project): Promise<Connection> {
 }
 
 type Op =
-  | { kind: 'txt2img'; params: Partial<GenParams> & { prompt: string }; /** character reference image ids (recorded on the result) */ references?: string[] }
-  /** character reference mode with a model that takes the reference images themselves */
-  | { kind: 'reference'; params: Partial<GenParams> & { prompt: string }; references: ImageRecord[] }
+  | {
+      kind: 'txt2img';
+      params: Partial<GenParams> & { prompt: string };
+      /** character reference image ids (recorded on the result) */
+      references?: string[];
+      /** pose reference (image id of a pose image) */
+      pose?: string;
+    }
+  /** character reference mode with a model that takes the reference images themselves (references may be empty with a pose) */
+  | { kind: 'reference'; params: Partial<GenParams> & { prompt: string }; references: ImageRecord[]; pose?: string }
   | {
       kind: 'img2img';
       source: ImageRecord;
@@ -152,6 +160,11 @@ type Op =
 export async function runImageOp(project: Project, op: Op, signal?: AbortSignal, opts?: { heldForCheck?: boolean }): Promise<ImageRecord[]> {
   // providers answer an empty prompt with cryptic validation errors: say what is wrong instead
   if (op.kind === 'txt2img' && !op.params.prompt?.trim()) throw new Error('The prompt was empty. Write a description of the image to generate.');
+  // a pose without ControlNet: let a model that takes reference images follow the skeleton, when there is one
+  if (op.kind === 'txt2img' && op.pose && !op.references?.length) {
+    const gen = await resolveSlot(project, 'generate');
+    if (!gen?.backend.capabilities.pose && (await referenceTarget(project))) op = { kind: 'reference', params: op.params, references: [], pose: op.pose };
+  }
   const refTarget = op.kind === 'reference' ? await referenceTarget(project) : undefined;
   if (op.kind === 'reference' && !refTarget) throw new Error('None of your image models takes reference images. Pick one that does (e.g. Nano Banana, Qwen Image Edit, FLUX.2, GPT Image) as the Generate or Edit model.');
   const { conn, backend, model } = refTarget ?? (await requireSlot(project, op.kind === 'txt2img' ? 'generate' : op.kind === 'img2img' ? (op.slot ?? 'edit') : 'upscale'));
@@ -161,7 +174,7 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
     op.kind === 'txt2img'
       ? op.params.prompt
       : op.kind === 'reference'
-        ? `From reference: ${op.params.prompt}`
+        ? `${op.references.length ? 'From reference' : 'With pose'}: ${op.params.prompt}`
         : op.kind === 'img2img'
           ? (op.mask ? 'Inpaint: ' : 'img2img: ') + op.prompt
           : `Upscale ×${op.scale}`;
@@ -200,7 +213,23 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
         if (backend.capabilities.negative && !params.negative?.includes('gradient background'))
           params.negative = [params.negative, spriteNegative(sprite.color)].filter(Boolean).join(', ');
       }
-      const imgs = await backend.txt2img(params, ctx);
+      // pose reference: ControlNet where the backend has it, the pose in words always
+      let poseVia: string | undefined;
+      const pose = op.pose ? await poseFor(op.pose, params.width, params.height, { style: backend.capabilities.promptStyle, fit: d.poseFit !== false }) : undefined;
+      if (pose) {
+        params.prompt = withPoseText(params.prompt, pose.description, backend.capabilities.promptStyle === 'tags');
+        if (backend.capabilities.pose) params.pose = pose.image;
+        poseVia = backend.capabilities.pose ? 'ControlNet' : 'text';
+      }
+      let imgs;
+      try {
+        imgs = await backend.txt2img(params, ctx);
+      } catch (e) {
+        if (!params.pose || (e as Error).name === 'AbortError') throw e;
+        // ControlNet refused (model without ControlNet, no OpenPose model…): generate from the pose text instead
+        imgs = await backend.txt2img({ ...params, pose: undefined }, ctx);
+        poseVia = `text (ControlNet failed: ${errText(e)})`;
+      }
       for (const im of imgs) {
         saved.push(
           await saveImage(project.id, im.blob, {
@@ -218,6 +247,7 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
               sampler: params.sampler,
               ...(sprite.enabled ? { sprite: sprite.color } : {}),
               ...(op.references?.length ? { references: op.references } : {}),
+              ...(pose ? { pose: pose.imageId, poseVia } : {}),
             },
           }),
         );
@@ -225,11 +255,15 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
       // sprite mode: cut out the background (checked requests do this once the check has picked the final images)
       if (sprite.enabled && !opts?.heldForCheck) afterGenerate(project.id, saved);
     } else if (op.kind === 'reference') {
-      const refs = op.references.slice(0, refTarget!.max);
-      const sprite = spriteOf(project);
-      const prompt = sprite.enabled ? withSpriteClause(op.params.prompt, project, 'natural') : op.params.prompt;
       const width = op.params.width ?? d.width;
       const height = op.params.height ?? d.height;
+      const pose = op.pose ? await poseFor(op.pose, width, height, { fit: d.poseFit !== false }) : undefined;
+      const refs = op.references.slice(0, Math.max(0, refTarget!.max - (pose ? 1 : 0)));
+      const inputs = [...refs.map((r) => r.blob), ...(pose ? [pose.image] : [])];
+      if (!inputs.length) throw new Error('Nothing to send as a reference image.');
+      const sprite = spriteOf(project);
+      let prompt = sprite.enabled ? withSpriteClause(op.params.prompt, project, 'natural') : op.params.prompt;
+      if (pose) prompt = `${withPoseText(prompt, pose.description, false)}\n\n${refs.length ? POSE_IMAGE_NOTE : POSE_IMAGE_NOTE.replace('The last reference image', 'The reference image')}`;
       // one request per image: reference models mostly return one image, and some ignore n
       const imgs = [];
       for (let i = 0; i < count; i++) {
@@ -245,8 +279,8 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
             // the reference model's own slot values (the txt2img ones when it is the Generate model)
             steps: refTarget!.slot === 'generate' ? (op.params.steps ?? d.steps) : (op.params.steps ?? samplingFor(d, refTarget!.slot).steps),
             cfg: refTarget!.slot === 'generate' ? (op.params.cfg ?? d.cfg) : (op.params.cfg ?? samplingFor(d, refTarget!.slot).cfg),
-            image: refs[0].blob,
-            references: refs.slice(1).map((r) => r.blob),
+            image: inputs[0],
+            references: inputs.slice(1),
             reference: true,
             denoise: 0.9,
           },
@@ -262,7 +296,13 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
             seed: im.seed,
             backend: conn.name,
             model,
-            params: { width, height, references: refs.map((r) => r.id), refInput: true, ...(sprite.enabled ? { sprite: sprite.color } : {}) },
+            params: {
+              width,
+              height,
+              ...(refs.length ? { references: refs.map((r) => r.id), refInput: true } : {}),
+              ...(pose ? { pose: pose.imageId, poseVia: 'reference image' } : {}),
+              ...(sprite.enabled ? { sprite: sprite.color } : {}),
+            },
           }),
         );
       }
@@ -333,3 +373,5 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
 function stripUndefined<T extends object>(o: T): Partial<T> {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== '')) as Partial<T>;
 }
+
+const errText = (e: unknown) => ((e as Error)?.message ?? String(e)).slice(0, 120);

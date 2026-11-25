@@ -9,6 +9,8 @@ export interface GenParams {
   seed?: number; // -1 / undefined = random
   count?: number;
   model?: string;
+  /** pose skeleton (OpenPose image) for ControlNet, on backends with capabilities.pose */
+  pose?: Blob;
 }
 
 export interface Img2ImgParams extends GenParams {
@@ -44,6 +46,8 @@ export interface BackendCapabilities {
   denoise: boolean;
   /** prompt style the LLM should write */
   promptStyle: 'natural' | 'tags';
+  /** takes an OpenPose skeleton through ControlNet (GenParams.pose) */
+  pose?: boolean;
 }
 
 /** What a model is good for, when the provider says so (NanoGPT/OpenRouter catalogue metadata). */

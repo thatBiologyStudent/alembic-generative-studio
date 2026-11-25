@@ -3,6 +3,7 @@ import { errMsg } from '../lib/http';
 import type { GenParams } from '../providers/image/types';
 import { useUI } from '../store/ui';
 import { referenceTarget, runImageOp } from './generate';
+import { poseFor } from './pose';
 import { autoSave } from '../lib/output';
 import { askVision, askVisionParts, imageDataUrl } from './vision';
 import { extractCharacterPrompt } from './prompts';
@@ -252,10 +253,15 @@ export async function generateChecked(
     sendImages?: ImageRecord[];
     /** reference mode: writes the next attempt's prompt from the corrections collected so far */
     rewrite?: (corrections: string[]) => Promise<string>;
+    /** pose reference (pose image id): applied to every attempt and checked */
+    pose?: string;
   },
 ): Promise<VerifiedResult> {
   const count = params.count ?? project.defaults.count;
   const refs = opts?.references;
+  // the check also judges the pose when one was given
+  const poseText = opts?.pose ? (await poseFor(opts.pose, params.width ?? project.defaults.width, params.height ?? project.defaults.height, { fit: project.defaults.poseFit !== false }))?.description : '';
+  const checkRequest = poseText ? `${request}\nRequired ${poseText.charAt(0).toLowerCase()}${poseText.slice(1)} (judge the pose loosely: the overall position of arms, legs and body)` : request;
   let gp = params;
   let settingsNote = '';
   // reference mode keeps the full character description and adds what came out different, instead of letting the checker rewrite the prompt
@@ -270,10 +276,10 @@ export async function generateChecked(
   while (true) {
     const need = count - good.length;
     const imgs = opts?.sendImages?.length
-      ? await runImageOp(project, { kind: 'reference', params: { ...gp, prompt, count: need }, references: opts.sendImages }, signal, { heldForCheck: checked })
-      : await runImageOp(project, { kind: 'txt2img', params: { ...gp, prompt, count: need }, references: refs }, signal, { heldForCheck: checked });
+      ? await runImageOp(project, { kind: 'reference', params: { ...gp, prompt, count: need }, references: opts.sendImages, pose: opts.pose }, signal, { heldForCheck: checked })
+      : await runImageOp(project, { kind: 'txt2img', params: { ...gp, prompt, count: need }, references: refs, pose: opts?.pose }, signal, { heldForCheck: checked });
     if (!checked) return { images: imgs, rejected: [], retries: 0, summary: '' };
-    const results = await checkAll(project, imgs, request, prompt, signal, refs, opts?.checklist);
+    const results = await checkAll(project, imgs, checkRequest, prompt, signal, refs, opts?.checklist);
     lastIssues = [];
     let fixed: string | undefined;
     let mangled = false;

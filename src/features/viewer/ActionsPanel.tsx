@@ -7,6 +7,7 @@ import {
   FileText,
   Info,
   Layers,
+  Accessibility,
   Maximize2,
   MessageSquarePlus,
   Palette,
@@ -28,6 +29,7 @@ import { ModelPicker } from '../chat/ModelPicker';
 import { askVision } from '../../agent/runAgent';
 import { describePrompt, DETAILS, extractCharacterPrompt, extractStylePrompt, type Detail } from '../../agent/prompts';
 import { deleteStyle, saveStyle, useStyles } from '../../lib/styles';
+import { poseOf } from '../../agent/pose';
 import { getImageBackend } from '../../providers/image';
 import type { BackendCapabilities } from '../../providers/image/types';
 import { errMsg } from '../../lib/http';
@@ -38,7 +40,7 @@ import { Thumb } from '../chat/MessageView';
 import type { MaskHandle } from './MaskCanvas';
 import { CutoutTab } from './Cutout';
 
-export type ActionTab = 'info' | 'edit' | 'img2img' | 'cutout' | 'character' | 'style' | 'describe' | 'upscale';
+export type ActionTab = 'info' | 'edit' | 'img2img' | 'cutout' | 'character' | 'style' | 'pose' | 'describe' | 'upscale';
 
 interface Props {
   project: Project;
@@ -66,6 +68,7 @@ const TABS: { id: ActionTab; label: string; icon: ReactNode }[] = [
   { id: 'cutout', label: 'Remove background', icon: <Scissors size={14} /> },
   { id: 'character', label: 'Extract character', icon: <UserRound size={14} /> },
   { id: 'style', label: 'Extract style', icon: <Palette size={14} /> },
+  { id: 'pose', label: 'Pose (beta)', icon: <Accessibility size={14} /> },
   { id: 'describe', label: 'Describe', icon: <FileText size={14} /> },
   { id: 'upscale', label: 'Upscale', icon: <Maximize2 size={14} /> },
 ];
@@ -113,6 +116,7 @@ export function ActionsPanel(props: Props) {
         {tab === 'cutout' && <CutoutTab project={project} image={props.image} />}
         {tab === 'character' && <CharacterTab {...props} caps={caps} />}
         {tab === 'style' && <StyleTab {...props} caps={caps} />}
+        {tab === 'pose' && <PoseTab {...props} caps={caps} />}
         {tab === 'describe' && <DescribeTab {...props} caps={caps} />}
         {tab === 'upscale' && <UpscaleTab {...props} caps={caps} canUpscale={!!upTarget} />}
       </div>
@@ -226,7 +230,7 @@ function InfoTab({ project, image }: TabProps) {
           {image.model && <span>Model: {image.model}</span>}
           {image.params &&
             Object.entries(image.params)
-              .filter(([, v]) => v !== undefined && v !== '')
+              .filter(([k, v]) => v !== undefined && v !== '' && typeof v !== 'object' && k !== 'description')
               .map(([k, v]) => (
                 <span key={k}>
                   {k}: {String(v)}
@@ -580,6 +584,49 @@ function StyleTab({ project, image, caps }: TabProps) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------- Pose ----------------
+function PoseTab({ project, image }: TabProps) {
+  const pose = poseOf(image);
+  const active = useUI((s) => s.poses[project.id]) === image.id;
+  const { setPose, toast } = useUI.getState();
+  const use = () => (setPose(project.id, active ? undefined : image.id), toast(active ? 'Pose removed' : 'Pose set (experimental): used for every new image until you remove it', 'info'));
+  return (
+    <div className="space-y-2.5 text-xs">
+      <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-200/90">
+        <span className="rounded bg-amber-500/15 px-1 py-px text-[9px] font-medium tracking-wide text-amber-300 uppercase" title="Not fully tested yet: results and provider support may change">Experimental</span>
+        Pose references are new and not fully tested: how well the pose is followed depends on the model and provider.
+      </div>
+      {pose ? (
+        <>
+          <div className="text-muted">
+            {image.params?.label} · {pose.people.length > 1 ? `${pose.people.length} people` : '1 person'}
+          </div>
+          <div className="max-h-28 overflow-y-auto rounded-md bg-bg p-2 text-zinc-300 select-text">{image.params?.description}</div>
+        </>
+      ) : (
+        <p className="text-muted">
+          This image has no pose keypoints. If it is an OpenPose skeleton (coloured stick figure on black), it can still be used as a pose: ControlNet and reference-image
+          models follow it, but it is not described in words. To load a pose with keypoints, attach a .json pose file in the chat box.
+        </p>
+      )}
+      <Row>
+        <button className={active ? 'btn' : 'btn-primary'} onClick={use}>
+          <Accessibility size={14} /> {active ? 'Stop using this pose' : 'Use as pose for new images'}
+        </button>
+        {image.params?.description && (
+          <button className="btn" onClick={() => (navigator.clipboard.writeText(image.params!.description), toast('Copied', 'info'))}>
+            <Copy size={13} /> Copy description
+          </button>
+        )}
+      </Row>
+      <p className="text-[11px] text-zinc-600">
+        How it is applied: ControlNet OpenPose on ArliAI (SD.Next models with ControlNet) and A1111 / Forge with the ControlNet extension; otherwise the skeleton goes to a model that takes
+        reference images (Nano Banana, Qwen Image Edit, FLUX.2, GPT Image…); otherwise it is described in the prompt. The AI check also judges the pose.
+      </p>
     </div>
   );
 }
