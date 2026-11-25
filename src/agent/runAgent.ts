@@ -9,6 +9,7 @@ import { useUI } from '../store/ui';
 import { resolveLLMConn, resolveSlot, runImageOp } from './generate';
 import { imageDataUrl } from './vision';
 import { editChecked, generateChecked } from './verify';
+import { generateFromReference } from './reference';
 import { listModelsTool, requestModelChange } from './modelTools';
 import { systemPrompt } from './prompts';
 import { buildTools } from './tools';
@@ -46,6 +47,12 @@ async function buildHistory(messages: Message[]): Promise<LLMMessage[]> {
           }
         }
       }
+      const refIds = m.parts.filter((p) => p.type === 'image').map((p) => (p as any).imageId as string);
+      if (m.references && refIds.length)
+        content.push({
+          type: 'text',
+          text: `(The attached image(s) ${refIds.map((id) => `[image:${id}]`).join(', ')} are CHARACTER REFERENCES. Do not edit them. Create new images with generate_image or generate_batch and pass reference_image_ids; write the prompt for the new scene, pose and composition only, the tool adds a detailed description of the character and compares every result with the reference.)`,
+        });
       if (content.length) out.push({ role: 'user', content });
     } else if (m.role === 'assistant') {
       const text = m.parts
@@ -136,7 +143,8 @@ async function execTool(
     }
     if (name === 'generate_image') {
       const { size, params } = genParams(project, args);
-      const r = await generateChecked(project, params, request, signal);
+      const refs = await ownImages(project, args.reference_image_ids);
+      const r = refs.length ? await generateFromReference(project, refs, params.prompt, signal, params, request) : await generateChecked(project, params, request, signal);
       const used = r.images[0] ? `${describeSize(r.images[0].width, r.images[0].height)}${size ? '' : ' — project default'}` : '';
       return {
         ...base,
@@ -211,11 +219,18 @@ async function execTool(
   }
 }
 
+/** The ids in v (a list or a single id) that are images of this project. */
+async function ownImages(project: Project, v: any): Promise<string[]> {
+  const ids = (Array.isArray(v) ? v : v ? [v] : []).map((x) => String(x).replace(/^\[?image:|\]$/g, '')).slice(0, 4);
+  const recs = await db.images.bulkGet(ids);
+  return recs.filter((r): r is ImageRecord => !!r && r.projectId === project.id).map((r) => r.id);
+}
+
 const num = (v: any) => (v === undefined || v === null || v === '' || isNaN(Number(v)) ? undefined : Number(v));
 const clamp = (v: number | undefined, lo: number, hi: number) => (v === undefined ? undefined : Math.max(lo, Math.min(hi, Math.round(v))));
 
 /** Sends the user's message and runs the tool loop until the model stops calling tools. */
-export async function runAgent(projectId: string, text: string, imageIds: string[]) {
+export async function runAgent(projectId: string, text: string, imageIds: string[], references = false) {
   const ui = useUI.getState();
   if (ui.busy[projectId]) return;
   const ctrl = new AbortController();
@@ -225,6 +240,7 @@ export async function runAgent(projectId: string, text: string, imageIds: string
       projectId,
       role: 'user',
       parts: [...imageIds.map((id) => ({ type: 'image' as const, imageId: id })), ...(text.trim() ? [{ type: 'text' as const, text }] : [])],
+      ...(references && imageIds.length ? { references: true } : {}),
     });
 
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -313,7 +329,7 @@ export async function runAgent(projectId: string, text: string, imageIds: string
  * batch = every non-empty line is its own prompt, generated one after another.
  * The automatic check still runs when a chat model is selected and checking is on.
  */
-export async function runDirect(projectId: string, text: string, imageIds: string[], batch = false) {
+export async function runDirect(projectId: string, text: string, imageIds: string[], batch = false, references = false) {
   const project = await db.projects.get(projectId);
   if (!project) return;
   const ui = useUI.getState();
@@ -328,20 +344,24 @@ export async function runDirect(projectId: string, text: string, imageIds: strin
         ...imageIds.map((id) => ({ type: 'image' as const, imageId: id })),
         { type: 'text', text: batch ? `🎨 Batch of ${prompts.length}:\n${prompts.map((p, i) => `${i + 1}. ${p}`).join('\n')}` : `🎨 ${text}` },
       ],
+      ...(references && imageIds.length ? { references: true } : {}),
     });
-    const src = imageIds.length ? await db.images.get(imageIds[0]) : undefined;
+    const refs = references ? imageIds.slice(0, 4) : [];
+    const src = !refs.length && imageIds.length ? await db.images.get(imageIds[0]) : undefined;
     for (let i = 0; i < prompts.length; i++) {
       if (ctrl.signal.aborted) break;
       const p = prompts[i];
       try {
-        const r = src
-          ? await editChecked(project, { source: src, prompt: p, count: project.defaults.count }, p, ctrl.signal)
-          : await generateChecked(project, { prompt: p }, p, ctrl.signal);
+        const r = refs.length
+          ? await generateFromReference(project, refs, p, ctrl.signal)
+          : src
+            ? await editChecked(project, { source: src, prompt: p, count: project.defaults.count }, p, ctrl.signal)
+            : await generateChecked(project, { prompt: p }, p, ctrl.signal);
         await addMessage({
           projectId,
           role: 'assistant',
           parts: [
-            { type: 'text', text: `${batch ? `${i + 1}/${prompts.length} · ${p}` : `Generated directly (${src ? 'img2img' : 'txt2img'})`}${r.summary}` },
+            { type: 'text', text: `${batch ? `${i + 1}/${prompts.length} · ${p}` : `Generated directly (${refs.length ? 'txt2img from character reference' : src ? 'img2img' : 'txt2img'})`}${r.summary}` },
             ...r.images.map((im) => ({ type: 'image' as const, imageId: im.id })),
           ],
         });

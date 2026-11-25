@@ -47,6 +47,7 @@ function MessageViewInner({ message: m, project, streamingText }: { message: Mes
             ))}
           </div>
         )}
+        {m.references && !!images.length && <span className="text-[11px] text-muted">Character reference</span>}
         {text && <div className="max-w-[88%] rounded-2xl rounded-br-md bg-accent/90 px-3 py-2 text-sm whitespace-pre-wrap text-white">{text}</div>}
       </div>
     );

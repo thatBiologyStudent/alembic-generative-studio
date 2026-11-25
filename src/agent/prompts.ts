@@ -103,20 +103,74 @@ export function systemPrompt(
   return lines.join('\n');
 }
 
-export function extractCharacterPrompt(style: 'tags' | 'natural') {
+/** How much the extractors describe: simple leaves room for a redesign, verbose aims at a 1:1 recreation. */
+export type Detail = 'simple' | 'balanced' | 'verbose';
+export const DETAILS: Detail[] = ['simple', 'balanced', 'verbose'];
+
+const CHARACTER_DETAIL: Record<Detail, string> = {
+  simple: [
+    'Detail level SIMPLE: capture only the core identity, so a new design can be made from it.',
+    'Name the species/type, gender presentation, apparent age, body type, hair colour and length, eye colour, the main colour scheme of the outfit and its overall type (e.g. "dark fantasy armour"), the one or two most iconic features, and the art style.',
+    'Leave out exact shapes, patterns, materials and small accessories: the generator should be free to redesign those.',
+  ].join(' '),
+  balanced: [
+    'Detail level BALANCED: a new design that stays clearly the same character.',
+    'Describe every identifying feature specifically: face shape, eye colour and shape, hairstyle with colour, length and parting, skin tone, body type, distinctive marks (scars, freckles, tattoos, horns, ears, tail), the main outfit pieces with their colours and materials, signature accessories and weapons, the colour palette and the art style / medium.',
+    'Minor ornaments, exact patterns and small extra accessories may be left out.',
+  ].join(' '),
+  verbose: [
+    'Detail level VERBOSE: the description must be so complete that the character is recreated 1:1, as if copied.',
+    'Go from head to toe and leave nothing out: exact hair colour (with highlights or gradients), length, texture, parting, fringe, every strand group, hair accessories; face shape, eyebrows, eye colour, iris and pupil style, eyelashes, nose, mouth, makeup, skin tone and texture; ears, horns, wings, tails and other features with their shape and colour;',
+    'body type, height impression and proportions; every garment layer in order with its cut, length, fit, colour (use precise colour words), material, pattern, trim, seams, buttons, straps, buckles and emblems; gloves, belts, footwear, jewellery, weapons and props with their position (left/right side) and colour;',
+    'scars, tattoos, freckles and markings with their exact location; and the art style precisely: medium, line art weight and colour, shading style, colouring technique, level of detail, palette and rendering (e.g. "cel-shaded anime illustration, thin dark-brown line art, soft gradient shading").',
+    'Use exact, measurable words; never summarise ("ornate outfit") where you can list the actual parts.',
+  ].join(' '),
+};
+
+const SCENE_DETAIL: Record<Detail, string> = {
+  simple: 'Detail level SIMPLE: the gist of the image only (main subject, what is happening, the kind of setting, mood and style), so a new composition can be made from it. Leave out exact positions and small objects.',
+  balanced:
+    'Detail level BALANCED: the subject(s) with their key features, pose and expression, the setting with its main elements, the composition and camera view, the lighting and colour palette, and the style. Small background objects and exact positions may be left out.',
+  verbose: [
+    'Detail level VERBOSE: the description must be so complete that the image is recreated 1:1.',
+    'Composition and framing (shot size, camera angle and height, lens feel, focus and depth of field, where each element sits in the frame: left/right/centre, foreground/midground/background);',
+    'every subject with full appearance, exact pose (head tilt, gaze direction, each arm and hand, legs, weight), expression and what they hold; every object and background element with its position, colour, material and size;',
+    'lighting (direction, colour temperature, hardness, rim light, shadows, time of day), atmosphere (fog, particles, weather), the colour palette with precise colour words, and the art style / medium / rendering precisely.',
+    'Use exact words; never summarise where you can list the actual parts.',
+  ].join(' '),
+};
+
+export function extractCharacterPrompt(style: 'tags' | 'natural', detail: Detail = 'balanced', multi = false) {
   return [
-    'Analyse the main character in this image and write a reusable text-to-image prompt that recreates the SAME character in new images.',
-    'Cover: species/gender presentation, apparent age, face, eyes, hair (colour, length, style), skin, body type, distinctive marks, outfit and accessories (colours, materials), and the art style / medium / rendering.',
+    multi
+      ? 'There are several characters in this image. Write a reusable text-to-image prompt for EACH of them that recreates that character in new images.'
+      : 'Analyse the main character in this image and write a reusable text-to-image prompt that recreates the SAME character in new images.',
+    CHARACTER_DETAIL[detail],
     'Do NOT describe the pose, background, camera or lighting of this specific image — only what identifies the character and the style.',
     style === 'tags'
-      ? 'Format: a single line of comma-separated Stable Diffusion tags/phrases, most important first.'
-      : 'Format: one dense paragraph of natural language, no lists.',
+      ? `Format: comma-separated Stable Diffusion tags/phrases, most important first${detail === 'simple' ? ' (about 15 tags)' : detail === 'verbose' ? ' (as many as needed, grouped head to toe)' : ''}.`
+      : `Format: natural language${detail === 'simple' ? ', two or three sentences' : detail === 'verbose' ? ', dense paragraphs, no bullet lists' : ', one dense paragraph, no lists'}.`,
+    multi
+      ? 'Write one block per character, separated by a blank line, each starting with "Character N (where it is in the image, e.g. left):". Describe each character completely on its own, never "same as Character 1".'
+      : '',
     'Reply with only the prompt, nothing else.',
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
-export function describePrompt(style: 'tags' | 'natural') {
-  return style === 'tags'
-    ? 'Describe this image as a Stable Diffusion prompt that would recreate it: comma-separated tags/phrases (subject, details, setting, lighting, composition, style). Reply with only the prompt.'
-    : 'Describe this image as a detailed text-to-image prompt that would recreate it (subject, details, setting, composition, lighting, style). Reply with only the prompt.';
+export function describePrompt(style: 'tags' | 'natural', detail: Detail = 'balanced', multi = false) {
+  return [
+    'Describe this image as a text-to-image prompt that recreates it.',
+    SCENE_DETAIL[detail],
+    multi
+      ? 'There are several characters in the image: describe EACH of them separately and completely (appearance, clothing, pose, expression, position in the frame), labelled "Character N (position)", then how they relate to each other and the scene. Never merge them into one description.'
+      : '',
+    style === 'tags'
+      ? 'Format: comma-separated Stable Diffusion tags/phrases (subject, details, setting, lighting, composition, style).'
+      : `Format: natural language${detail === 'simple' ? ', a few sentences' : ', no bullet lists'}.`,
+    'Reply with only the prompt, nothing else.',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }

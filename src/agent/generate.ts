@@ -84,7 +84,7 @@ export async function resolveLLMConn(project: Project): Promise<Connection> {
 }
 
 type Op =
-  | { kind: 'txt2img'; params: Partial<GenParams> & { prompt: string } }
+  | { kind: 'txt2img'; params: Partial<GenParams> & { prompt: string }; /** character reference image ids (recorded on the result) */ references?: string[] }
   | { kind: 'img2img'; source: ImageRecord; prompt: string; denoise?: number; mask?: Blob; count?: number; negative?: string; seed?: number }
   | { kind: 'upscale'; source: ImageRecord; scale: number };
 
@@ -146,6 +146,7 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
               cfg: params.cfg,
               sampler: params.sampler,
               ...(sprite.enabled ? { sprite: sprite.color } : {}),
+              ...(op.references?.length ? { references: op.references } : {}),
             },
           }),
         );

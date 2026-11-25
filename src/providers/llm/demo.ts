@@ -21,7 +21,7 @@ export class DemoProvider implements LLMProvider {
 
   async chat(req: ChatRequest): Promise<ChatResponse> {
     const last = req.messages[req.messages.length - 1];
-    if (req.system?.includes('quality checker')) {
+    if (req.system?.includes('quality checker') || req.system?.includes('character consistency')) {
       // offline stand-in for the image check. Test keywords in your message:
       //   "fail-once"   → first attempt fails, the suggested fixed prompt passes
       //   "always-fail" → every attempt fails (shows the retry limit)

@@ -90,6 +90,8 @@ export interface Message {
   toolCalls?: ToolCall[];
   toolResults?: ToolResult[];
   error?: string;
+  /** user message: the attached images are character references (redraw the character from text), not edit sources */
+  references?: boolean;
   createdAt: number;
 }
 

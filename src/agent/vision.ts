@@ -31,10 +31,10 @@ export async function askVision(
   return askVisionUrl(project, url, instruction, onText, opts);
 }
 
-/** Same as askVision, for an image that isn't stored (given as a data URL). */
+/** Same as askVision, for images given as data URLs (several are sent in order, before the instruction). */
 export async function askVisionUrl(
   project: Project,
-  url: string,
+  url: string | string[],
   instruction: string,
   onText?: (t: string) => void,
   opts?: { signal?: AbortSignal; system?: string },
@@ -47,7 +47,7 @@ export async function askVisionUrl(
     model,
     system: opts?.system,
     signal: opts?.signal,
-    messages: [{ role: 'user', content: [{ type: 'image', dataUrl: url }, { type: 'text', text: instruction }] }],
+    messages: [{ role: 'user', content: [...[url].flat().map((u) => ({ type: 'image' as const, dataUrl: u })), { type: 'text', text: instruction }] }],
     onText: (d) => {
       acc += d;
       onText?.(acc);

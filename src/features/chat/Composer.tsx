@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Bot, ListOrdered, Paperclip, Square, UserRound, Wand2, X } from 'lucide-react';
+import { ArrowUp, Bot, ImagePlus, ListOrdered, Paperclip, Square, UserRound, Wand2, X } from 'lucide-react';
+import { maxRetries } from '../../db/schema';
 import type { Project } from '../../db/schema';
 import { saveImage } from '../../db/repo';
 import { runAgent, runDirect } from '../../agent/runAgent';
@@ -18,6 +19,12 @@ export function Composer({ project }: { project: Project }) {
   const setBatchP = (b: boolean) => {
     setBatch(b);
     safeSet('composerBatch', b ? '1' : '0');
+  };
+  // what attached images are for: an img2img source, or a character to redraw from text in a new scene
+  const [attachAs, setAttachAs] = useState<'edit' | 'reference'>(() => (safeGet('composerAttachAs') === 'reference' ? 'reference' : 'edit'));
+  const setAttachAsP = (a: 'edit' | 'reference') => {
+    setAttachAs(a);
+    safeSet('composerAttachAs', a);
   };
   const attachments = useUI((s) => s.attachments[project.id] ?? EMPTY);
   const busy = useUI((s) => s.busy[project.id]);
@@ -60,8 +67,9 @@ export function Composer({ project }: { project: Project }) {
     setText('');
     const imgs = [...attachments];
     clearAttachments(project.id);
-    if (mode === 'agent') await runAgent(project.id, t, imgs);
-    else await runDirect(project.id, t, imgs, batch);
+    const refs = attachAs === 'reference' && imgs.length > 0;
+    if (mode === 'agent') await runAgent(project.id, t, imgs, refs);
+    else await runDirect(project.id, t, imgs, batch, refs);
   };
 
   const setModeP = (m: 'agent' | 'direct') => {
@@ -94,6 +102,31 @@ export function Composer({ project }: { project: Project }) {
               </button>
             </div>
           ))}
+          <div className="ml-1 flex min-w-0 flex-1 flex-col justify-center gap-1">
+            <div className="flex w-fit rounded-lg border border-line p-0.5 text-xs">
+              <button
+                className={`flex items-center gap-1 rounded-md px-2 py-0.5 ${attachAs === 'edit' ? 'bg-zinc-700 text-white' : 'text-muted'}`}
+                onClick={() => setAttachAsP('edit')}
+                title="The attached image is changed (img2img / edit)"
+              >
+                <ImagePlus size={12} /> Edit image
+              </button>
+              <button
+                className={`flex items-center gap-1 rounded-md px-2 py-0.5 ${attachAs === 'reference' ? 'bg-zinc-700 text-white' : 'text-muted'}`}
+                onClick={() => setAttachAsP('reference')}
+                title="The character in the attached image is drawn again from text, in the new scene you describe"
+              >
+                <UserRound size={12} /> Character reference
+              </button>
+            </div>
+            <p className="text-[11px] leading-snug text-muted">
+              {attachAs === 'reference'
+                ? `The character is described in detail and drawn from text in the scene you write (txt2img, not img2img). Each result is compared with the reference and regenerated until it matches (up to ${maxRetries(project.defaults)} retries).`
+                : mode === 'direct'
+                  ? 'The first attached image is changed with your prompt (img2img).'
+                  : 'The assistant can edit the attached images or use them as context.'}
+            </p>
+          </div>
         </div>
       )}
       <div className="mb-2 flex min-w-0 items-center gap-1.5">
@@ -119,7 +152,7 @@ export function Composer({ project }: { project: Project }) {
               void addFiles(files);
             }
           }}
-          placeholder={mode === 'agent' ? 'Describe an image, or ask for changes… (lists → one image each)' : batch ? 'One prompt per line — each line becomes its own image (Shift+Enter for new line)' : 'Prompt to generate directly (no assistant)…'}
+          placeholder={attachments.length && attachAs === 'reference' ? 'Describe the new scene for this character: pose, setting, composition…' : mode === 'agent' ? 'Describe an image, or ask for changes… (lists → one image each)' : batch ? 'One prompt per line — each line becomes its own image (Shift+Enter for new line)' : 'Prompt to generate directly (no assistant)…'}
           className="block max-h-56 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-sm outline-none placeholder:text-zinc-600"
         />
         <div className="flex items-center gap-1 px-2 pb-2">

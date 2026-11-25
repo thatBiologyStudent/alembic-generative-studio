@@ -26,6 +26,13 @@ export function buildTools(caps: BackendCapabilities, slots: { edit?: BackendCap
         type: 'object',
         properties: {
           prompt: { type: 'string', description: 'The full image prompt.' },
+          reference_image_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Character reference images ([image:<id>] ids, at most 4). Use when the user attached images as character references or asks for the same character as an existing image in a new scene. ' +
+              'The reference is NOT edited: the character is described in detail and drawn from text, and each result is compared with the reference and regenerated until it matches. Write the prompt for the new scene, pose and composition only.',
+          },
           ...(caps.negative ? { negative_prompt: { type: 'string', description: 'Things to avoid.' } } : {}),
           ...sizeProps,
           width: { type: 'integer', description: 'Exact width in pixels — only when the user gives exact pixels (overrides aspect_ratio/resolution).' },
@@ -63,12 +70,14 @@ export function buildTools(caps: BackendCapabilities, slots: { edit?: BackendCap
                 ...(caps.negative ? { negative_prompt: { type: 'string' } } : {}),
                 ...sizeProps,
                 count: { type: 'integer', minimum: 1, maximum: 8 },
+                reference_image_ids: { type: 'array', items: { type: 'string' }, description: 'Character reference image ids for this item (see generate_image).' },
               },
               required: ['prompt'],
             },
           },
           ...sizeProps,
           count_per_item: { type: 'integer', minimum: 1, maximum: 8, description: 'Images per item (default from project settings).' },
+          reference_image_ids: { type: 'array', items: { type: 'string' }, description: 'Character reference image ids for all items (see generate_image), e.g. the same character in several scenes.' },
           ...(caps.negative ? { negative_prompt: { type: 'string', description: 'Negative prompt for all items.' } } : {}),
         },
         required: ['items'],

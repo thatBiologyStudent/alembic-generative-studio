@@ -4,7 +4,7 @@ import type { GenParams } from '../providers/image/types';
 import { useUI } from '../store/ui';
 import { runImageOp } from './generate';
 import { autoSave } from '../lib/output';
-import { askVision } from './vision';
+import { askVision, askVisionUrl, imageDataUrl } from './vision';
 import { afterGenerate } from './sprite';
 
 export interface CheckResult {
@@ -25,6 +25,16 @@ const CHECK_SYSTEM = [
   'Answer ONLY with JSON: {"match": true|false, "issues": "short reason when false", "fixed_prompt": "a better prompt that avoids the issues, when false"}',
 ].join('\n');
 
+const REF_CHECK_SYSTEM = [
+  'You are a strict but fair checker for character consistency in an image generator.',
+  'You get one or more REFERENCE images of a character, then (last) a newly GENERATED image, plus the user request and the prompt that was sent.',
+  'The generated image is meant to show the SAME character(s) as the reference in a NEW scene: the pose, background, camera, framing and lighting are supposed to differ. Never fail it for those.',
+  'Compare the character identity only: face, eye colour, hairstyle and hair colour, skin tone, body type, species features (ears, horns, tail, wings), distinctive marks, outfit pieces and their colours, signature accessories, and the art style.',
+  'Also fail it when the scene the user asked for is missing. Ignore tiny details hidden by the new pose.',
+  'Answer ONLY with JSON: {"match": true|false, "issues": "which character features differ from the reference, when false", ' +
+    '"fixed_prompt": "when false: the full prompt again, keeping the requested scene and composition, with the character description corrected and the differing features stated more explicitly"}',
+].join('\n');
+
 function parseCheck(text: string): CheckResult {
   const m = /\{[\s\S]*\}/.exec(text);
   if (!m) return { ok: true, issues: '', skipped: 'checker gave no JSON' };
@@ -38,16 +48,34 @@ function parseCheck(text: string): CheckResult {
 }
 
 /** Lets the project's chat model look at an image and judge it against the request. */
-export async function checkImage(project: Project, img: ImageRecord, request: string, prompt: string, signal?: AbortSignal): Promise<CheckResult> {
+export async function checkImage(
+  project: Project,
+  img: ImageRecord,
+  request: string,
+  prompt: string,
+  signal?: AbortSignal,
+  references?: string[],
+): Promise<CheckResult> {
   let res: CheckResult;
   try {
-    const text = await askVision(
-      project,
-      img.id,
-      `User request: ${request || prompt}\nPrompt sent to the generator: ${prompt}\n\nDoes the image deliver the request? Reply with the JSON only.`,
-      undefined,
-      { maxEdge: 1024, signal, system: CHECK_SYSTEM },
-    );
+    let text: string;
+    if (references?.length) {
+      const urls = (await Promise.all([...references, img.id].map((id) => imageDataUrl(id, 1024)))).filter((u): u is string => !!u);
+      text = await askVisionUrl(
+        project,
+        urls,
+        `The first ${urls.length - 1} image(s) are the REFERENCE, the last one is the GENERATED image.\nUser request (the new scene): ${request || prompt}\nPrompt sent to the generator: ${prompt}\n\nIs it the same character as the reference, in the requested scene? Reply with the JSON only.`,
+        undefined,
+        { signal, system: REF_CHECK_SYSTEM },
+      );
+    } else
+      text = await askVision(
+        project,
+        img.id,
+        `User request: ${request || prompt}\nPrompt sent to the generator: ${prompt}\n\nDoes the image deliver the request? Reply with the JSON only.`,
+        undefined,
+        { maxEdge: 1024, signal, system: CHECK_SYSTEM },
+      );
     res = parseCheck(text);
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
@@ -71,15 +99,15 @@ export interface VerifiedResult {
 }
 
 /** Run checks for a batch of fresh images, showing a "checking" tile in the gallery meanwhile. */
-async function checkAll(project: Project, imgs: ImageRecord[], request: string, prompt: string, signal?: AbortSignal) {
+async function checkAll(project: Project, imgs: ImageRecord[], request: string, prompt: string, signal?: AbortSignal, references?: string[]) {
   const ui = useUI.getState();
-  const job = ui.addJob({ projectId: project.id, label: `AI checking: ${prompt}`, count: imgs.length });
+  const job = ui.addJob({ projectId: project.id, label: `${references?.length ? 'Comparing with reference' : 'AI checking'}: ${request || prompt}`, count: imgs.length });
   const onAbort = () => job.abort.abort();
   signal?.addEventListener('abort', onAbort);
   try {
     const out: { img: ImageRecord; res: CheckResult }[] = [];
     for (let i = 0; i < imgs.length; i++) {
-      out.push({ img: imgs[i], res: await checkImage(project, imgs[i], request, prompt, job.abort.signal) });
+      out.push({ img: imgs[i], res: await checkImage(project, imgs[i], request, prompt, job.abort.signal, references) });
       useUI.getState().updateJob(job.id, { progress: (i + 1) / imgs.length });
     }
     return out;
@@ -89,8 +117,9 @@ async function checkAll(project: Project, imgs: ImageRecord[], request: string, 
   }
 }
 
-async function canCheck(project: Project): Promise<boolean> {
-  if (!verifyEnabled(project.defaults)) return false;
+/** references = character reference mode, which always compares (it needs the chat model anyway) */
+async function canCheck(project: Project, references?: string[]): Promise<boolean> {
+  if (!references?.length && !verifyEnabled(project.defaults)) return false;
   const c = project.llmConnId ? await db.connections.get(project.llmConnId) : undefined;
   return !!c?.chatApi;
 }
@@ -114,9 +143,11 @@ export async function generateChecked(
   params: Partial<GenParams> & { prompt: string },
   request: string,
   signal?: AbortSignal,
+  opts?: { references?: string[] },
 ): Promise<VerifiedResult> {
   const count = params.count ?? project.defaults.count;
-  const checked = await canCheck(project);
+  const refs = opts?.references;
+  const checked = await canCheck(project, refs);
   let prompt = params.prompt;
   const good: ImageRecord[] = [];
   const rejected: ImageRecord[] = [];
@@ -125,9 +156,9 @@ export async function generateChecked(
   let skipped: string | undefined;
   while (true) {
     const need = count - good.length;
-    const imgs = await runImageOp(project, { kind: 'txt2img', params: { ...params, prompt, count: need } }, signal, { heldForCheck: checked });
+    const imgs = await runImageOp(project, { kind: 'txt2img', params: { ...params, prompt, count: need }, references: refs }, signal, { heldForCheck: checked });
     if (!checked) return { images: imgs, rejected: [], retries: 0, summary: '' };
-    const results = await checkAll(project, imgs, request, prompt, signal);
+    const results = await checkAll(project, imgs, request, prompt, signal, refs);
     lastIssues = [];
     let fixed: string | undefined;
     for (const { img, res } of results) {
@@ -150,7 +181,8 @@ export async function generateChecked(
   // nothing passed: still hand back the latest attempt so the user sees something
   const images = good.length ? good : rejected.slice(-count);
   if (checked) afterGenerate(project.id, images.filter((i) => i.params?.sprite));
-  return { images, rejected: rejected.filter((r) => !images.includes(r)), retries, summary: summarize(count, good, rejected, retries, lastIssues, skipped, checked) };
+  const summary = summarize(count, good, rejected, retries, lastIssues, skipped, checked);
+  return { images, rejected: rejected.filter((r) => !images.includes(r)), retries, summary: refs?.length ? summary.replace(/the AI check/g, 'the reference comparison') : summary };
 }
 
 /** img2img / edit with the same check-and-retry loop (re-runs the edit on the original source). */

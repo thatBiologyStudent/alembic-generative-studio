@@ -23,7 +23,7 @@ import { updateProject } from '../../db/repo';
 import { resolveSlot, runImageOp } from '../../agent/generate';
 import { ModelPicker } from '../chat/ModelPicker';
 import { askVision } from '../../agent/runAgent';
-import { describePrompt, extractCharacterPrompt } from '../../agent/prompts';
+import { describePrompt, DETAILS, extractCharacterPrompt, type Detail } from '../../agent/prompts';
 import { getImageBackend } from '../../providers/image';
 import type { BackendCapabilities } from '../../providers/image/types';
 import { errMsg } from '../../lib/http';
@@ -357,8 +357,67 @@ function Img2ImgTab({ project, image, caps }: TabProps) {
   );
 }
 
+// ---------------- Detail level (shared by Extract character and Describe) ----------------
+const DETAIL_INFO: Record<Detail, { label: string; hint: string }> = {
+  simple: { label: 'Simple', hint: 'Core identity only, with room to make a new design from it.' },
+  balanced: { label: 'Balanced', hint: 'A new design with strong guidance: every identifying feature, small details left open.' },
+  verbose: { label: 'Verbose', hint: 'Everything visible, in exact words, so regenerating recreates it as closely as possible (1:1).' },
+};
+
+function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
+  const [v, setV] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw === null ? initial : (JSON.parse(raw) as T);
+    } catch {
+      return initial;
+    }
+  });
+  const set = (n: T) => {
+    setV(n);
+    try {
+      localStorage.setItem(key, JSON.stringify(n));
+    } catch {
+      /* ignore */
+    }
+  };
+  return [v, set];
+}
+
+function useDetail() {
+  const [detail, setDetail] = usePersisted<Detail>('extractDetail', 'balanced');
+  const [multi, setMulti] = usePersisted('extractMulti', false);
+  return { detail: DETAILS.includes(detail) ? detail : 'balanced', setDetail, multi, setMulti };
+}
+
+function DetailControls({ d, what }: { d: ReturnType<typeof useDetail>; what: 'character' | 'scene' }) {
+  const i = DETAILS.indexOf(d.detail);
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        <label className="block w-56 max-w-full text-xs text-muted">
+          <span className="flex justify-between">
+            {DETAILS.map((x, n) => (
+              <button key={x} type="button" onClick={() => d.setDetail(x)} className={n === i ? 'text-zinc-200' : 'hover:text-zinc-300'}>
+                {DETAIL_INFO[x].label}
+              </button>
+            ))}
+          </span>
+          <input type="range" min={0} max={2} step={1} value={i} onChange={(e) => d.setDetail(DETAILS[+e.target.value])} className="w-full accent-violet-500" aria-label="Detail level" />
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-muted" title={`Describe every ${what === 'character' ? 'character' : 'character in the scene'} separately instead of only the main one`}>
+          <input type="checkbox" checked={d.multi} onChange={(e) => d.setMulti(e.target.checked)} />
+          Several characters in the image
+        </label>
+      </div>
+      <p className="text-[11px] text-muted">{DETAIL_INFO[d.detail].hint}</p>
+    </div>
+  );
+}
+
 // ---------------- Extract character ----------------
 function CharacterTab({ project, image, caps }: TabProps) {
+  const d = useDetail();
   const [text, setText] = useState('');
   const [name, setName] = useState('');
   const { busy, run } = useRunner();
@@ -370,12 +429,13 @@ function CharacterTab({ project, image, caps }: TabProps) {
   return (
     <div className="space-y-2.5">
       <Row>
-        <button className="btn-primary" disabled={busy} onClick={() => run(async () => setText(await askVision(project, image.id, extractCharacterPrompt(style), setText)))}>
+        <button className="btn-primary" disabled={busy} onClick={() => run(async () => setText(await askVision(project, image.id, extractCharacterPrompt(style, d.detail, d.multi), setText)))}>
           {busy ? <Spinner /> : <UserRound size={14} />} Extract character prompt
         </button>
         <span className="text-xs text-muted">Uses the project's chat model (needs vision) · {style === 'tags' ? 'tag style' : 'natural language'}</span>
       </Row>
-      <textarea className="input h-20" value={text} onChange={(e) => setText(e.target.value)} placeholder="The reusable character prompt appears here…" />
+      <DetailControls d={d} what="character" />
+      <textarea className={`input ${d.detail === 'verbose' || d.multi ? 'h-40' : 'h-24'}`} value={text} onChange={(e) => setText(e.target.value)} placeholder="The reusable character prompt appears here…" />
       <Row>
         <input className="input w-44" value={name} onChange={(e) => setName(e.target.value)} placeholder="Character name" />
         <button
@@ -421,6 +481,7 @@ function CharacterTab({ project, image, caps }: TabProps) {
 
 // ---------------- Describe ----------------
 function DescribeTab({ project, image, caps }: TabProps) {
+  const d = useDetail();
   const [text, setText] = useState('');
   const { busy, run } = useRunner();
   const gen = useRunner();
@@ -429,7 +490,7 @@ function DescribeTab({ project, image, caps }: TabProps) {
   return (
     <div className="space-y-2.5">
       <Row>
-        <button className="btn-primary" disabled={busy} onClick={() => run(async () => setText(await askVision(project, image.id, describePrompt(caps?.promptStyle ?? 'natural'), setText)))}>
+        <button className="btn-primary" disabled={busy} onClick={() => run(async () => setText(await askVision(project, image.id, describePrompt(caps?.promptStyle ?? 'natural', d.detail, d.multi), setText)))}>
           {busy ? <Spinner /> : <FileText size={14} />} Describe with chat model
         </button>
         {caps?.interrogate && (
@@ -448,7 +509,8 @@ function DescribeTab({ project, image, caps }: TabProps) {
           </button>
         )}
       </Row>
-      <textarea className="input h-24" value={text} onChange={(e) => setText(e.target.value)} placeholder="Image description / prompt" />
+      <DetailControls d={d} what="scene" />
+      <textarea className={`input ${d.detail === 'verbose' || d.multi ? 'h-40' : 'h-24'}`} value={text} onChange={(e) => setText(e.target.value)} placeholder="Image description / prompt" />
       <Row>
         <button className="btn" disabled={!text.trim()} onClick={() => prefill(project.id, text)}>
           <MessageSquarePlus size={13} /> To chat
