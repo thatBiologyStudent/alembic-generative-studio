@@ -34,6 +34,16 @@ const TOOL_LABEL: Record<string, string> = {
   request_model_change: 'Asking to switch model',
 };
 
+/** How a pose reference was applied to these images (ControlNet, reference image, text). */
+function PoseNote({ imageIds }: { imageIds: string[] }) {
+  const via = useLiveQuery(async () => {
+    const recs = await db.images.bulkGet(imageIds);
+    return [...new Set(recs.map((r) => r?.params?.poseVia).filter(Boolean) as string[])];
+  }, [imageIds.join()]);
+  if (!via?.length) return null;
+  return <div className="mt-1 text-[11px] text-muted">Pose applied via {via.join(' / ')}</div>;
+}
+
 function MessageViewInner({ message: m, project, streamingText }: { message: Message; project: Project; streamingText?: string }) {
   if (m.role === 'user') {
     const images = m.parts.filter((p) => p.type === 'image');
@@ -48,6 +58,12 @@ function MessageViewInner({ message: m, project, streamingText }: { message: Mes
           </div>
         )}
         {m.references && !!images.length && <span className="text-[11px] text-muted">Character reference</span>}
+        {m.pose && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-muted">Pose reference</span>
+            <Thumb imageId={m.pose} projectId={project.id} size="sm" />
+          </div>
+        )}
         {text && <div className="max-w-[88%] rounded-2xl rounded-br-md bg-accent/90 px-3 py-2 text-sm whitespace-pre-wrap text-white">{text}</div>}
       </div>
     );
@@ -70,6 +86,7 @@ function MessageViewInner({ message: m, project, streamingText }: { message: Mes
                 ))}
               </div>
             )}
+            {!!r.imageIds?.length && r.name !== 'view_image' && <PoseNote imageIds={r.imageIds} />}
           </div>
         ))}
       </div>
