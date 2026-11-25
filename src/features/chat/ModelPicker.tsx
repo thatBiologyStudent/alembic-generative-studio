@@ -19,6 +19,7 @@ import {
   type ModelListEntry,
 } from '../../providers/models';
 import { Spinner } from '../../components/common';
+import { clearDismissed } from '../workspace/RecommendedHint';
 import { BING_SPEC, FLOW_SPEC, SidecarStatusDot } from '../settings/FlowSidecarStatus';
 
 const PER_PROVIDER = 60;
@@ -63,6 +64,8 @@ export function ModelPicker({ project, kind, slot = 'generate', compact }: { pro
 
   const select = async (c: Connection | undefined, m: string | undefined) => {
     await updateProject(project.id, { [fields.conn]: c?.id, [fields.model]: m } as Partial<Project>);
+    // a newly picked model gets its settings warning again, even if it was dismissed before
+    if (kind === 'image') clearDismissed(project.id, slot);
     if (c && m && !isSlot) await rememberLast(kind, { connId: c.id, model: m });
     setOpen(false);
     setQ('');

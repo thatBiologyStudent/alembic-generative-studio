@@ -1,8 +1,38 @@
-import { useEffect, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { AlertTriangle, X } from 'lucide-react';
 import { samplingFor, withSampling, type ImageSlot, type Project } from '../../db/schema';
 import { updateProject } from '../../db/repo';
 import { describeRecommended, mismatch, recommendedFor, type Recommended } from '../../lib/recommended';
+
+// dismissed warnings: "<project>:<slot>" → the model it was dismissed for. Picking a model clears it, so it comes back.
+const DISMISS_KEY = 'recommendedDismissed';
+let dismissed: Record<string, string> = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(DISMISS_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+})();
+const listeners = new Set<() => void>();
+function setDismissed(next: Record<string, string>) {
+  dismissed = next;
+  try {
+    localStorage.setItem(DISMISS_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+  for (const l of listeners) l();
+}
+const subscribe = (l: () => void) => (listeners.add(l), () => void listeners.delete(l));
+
+/** Shows the warning again for a slot (called whenever its model is picked). */
+export function clearDismissed(projectId: string, slot: ImageSlot) {
+  const k = `${projectId}:${slot}`;
+  if (k in dismissed) {
+    const { [k]: _, ...rest } = dismissed;
+    setDismissed(rest);
+  }
+}
 
 /** The recommended steps/CFG for the model in a slot, re-read when the model changes. */
 export function useRecommended(project: Project, slot: ImageSlot = 'generate') {
@@ -27,6 +57,12 @@ export function useRecommended(project: Project, slot: ImageSlot = 'generate') {
  */
 export function RecommendedHint({ project, compact, slot = 'generate' }: { project: Project; compact?: boolean; slot?: ImageSlot }) {
   const rec = useRecommended(project, slot);
+  const key = `${project.id}:${slot}`;
+  const gone = useSyncExternalStore(subscribe, () => dismissed[key]);
+  // a different model than the one it was dismissed for: show it again
+  useEffect(() => {
+    if (rec && gone && gone !== rec.model) clearDismissed(project.id, slot);
+  }, [rec, gone, project.id, slot]);
   if (!rec) return null;
   const all = project.defaults;
   const d = samplingFor(all, slot);
@@ -44,6 +80,7 @@ export function RecommendedHint({ project, compact, slot = 'generate' }: { proje
       </p>
     );
   }
+  if (gone === rec.model) return null;
   const yours = [m.cfg ? `CFG ${d.cfg}` : '', m.steps ? `${d.steps} steps` : ''].filter(Boolean).join(', ');
   const capped = (rec.maxSteps && d.steps > rec.maxSteps) || (rec.maxCfg && d.cfg > rec.maxCfg);
   return (
@@ -55,6 +92,14 @@ export function RecommendedHint({ project, compact, slot = 'generate' }: { proje
       </span>
       <button className="btn px-2 py-0.5 text-[11px]" onClick={apply}>
         Use recommended
+      </button>
+      <button
+        className="rounded p-0.5 text-amber-200/60 hover:text-amber-100"
+        onClick={() => setDismissed({ ...dismissed, [key]: rec.model })}
+        title="Dismiss: it comes back when you pick a model"
+        aria-label="Dismiss"
+      >
+        <X size={12} />
       </button>
     </div>
   );
