@@ -74,11 +74,39 @@ export async function outputFolderName(): Promise<string | undefined> {
   return (await getHandle())?.name;
 }
 
+/**
+ * Whether the folder can actually be used right now. queryPermission alone is not trusted: Chrome on Android
+ * answers "prompt" even right after access was granted (its folder access works differently from desktop), which
+ * used to bring the "Allow saving" bar back after every image. So when it isn't "granted", try reading the folder.
+ */
+async function hasAccess(h: DirHandle): Promise<boolean> {
+  try {
+    if ((await h.queryPermission({ mode: 'readwrite' })) === 'granted') return true;
+  } catch {
+    /* not implemented: fall through to the probe */
+  }
+  try {
+    for await (const _ of (h as unknown as { keys(): AsyncIterable<string> }).keys()) break;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Errors that mean "no permission for this folder" (as opposed to a full disk or a bad file name). */
+const isPermissionError = (e: unknown) => e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+
 /** Re-grant access after a browser restart (must be called from a click). */
 export async function reconnectOutputFolder(): Promise<boolean> {
   const h = await getHandle();
   if (!h) return false;
-  const ok = (await h.requestPermission({ mode: 'readwrite' })) === 'granted';
+  let granted = false;
+  try {
+    granted = (await h.requestPermission({ mode: 'readwrite' })) === 'granted';
+  } catch {
+    /* some browsers don't implement requestPermission: the probe below decides */
+  }
+  const ok = granted || (await hasAccess(h));
   useOutput.setState({ needsPermission: !ok });
   if (ok) await flushPending();
   return ok;
@@ -90,13 +118,7 @@ export async function refreshOutputStatus() {
   if (s.mode !== 'folder') return useOutput.setState({ needsPermission: false, folderName: undefined });
   const h = await getHandle();
   if (!h) return useOutput.setState({ needsPermission: false, folderName: undefined });
-  let state: PermState = 'prompt';
-  try {
-    state = await h.queryPermission({ mode: 'readwrite' });
-  } catch {
-    /* ignore */
-  }
-  useOutput.setState({ folderName: h.name, needsPermission: state !== 'granted' });
+  useOutput.setState({ folderName: h.name, needsPermission: !(await hasAccess(h)) });
 }
 
 // ---------- saving ----------
@@ -141,13 +163,17 @@ async function saveOne(img: ImageRecord, s: OutputSettings): Promise<boolean> {
   }
   const root = await getHandle();
   if (!root) return false;
-  if ((await root.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+  // just try the write: the permission query is unreliable on Android (see hasAccess)
+  try {
+    const dir = s.perProject ? await root.getDirectoryHandle(safeName(projectName), { create: true }) : root;
+    await writeFile(dir, name, img.blob);
+    if (s.sidecar) await writeFile(dir, `${fileBase(img)}.json`, sidecarJson(img, projectName));
+  } catch (e) {
+    if (!isPermissionError(e)) throw e;
     useOutput.setState({ needsPermission: true });
     return false;
   }
-  const dir = s.perProject ? await root.getDirectoryHandle(safeName(projectName), { create: true }) : root;
-  await writeFile(dir, name, img.blob);
-  if (s.sidecar) await writeFile(dir, `${fileBase(img)}.json`, sidecarJson(img, projectName));
+  useOutput.setState({ needsPermission: false });
   return true;
 }
 
