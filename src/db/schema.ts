@@ -126,7 +126,7 @@ export interface Message {
   createdAt: number;
 }
 
-export type ImageOp = 'txt2img' | 'img2img' | 'inpaint' | 'upscale' | 'upload' | 'cutout' | 'pose';
+export type ImageOp = 'txt2img' | 'img2img' | 'inpaint' | 'upscale' | 'upload' | 'cutout' | 'pose' | 'crop';
 
 export interface ImageRecord {
   id: string;

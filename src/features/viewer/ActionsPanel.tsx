@@ -8,6 +8,7 @@ import {
   Info,
   Layers,
   Accessibility,
+  Crop as CropIcon,
   Maximize2,
   MessageSquarePlus,
   Palette,
@@ -39,8 +40,9 @@ import { useUI } from '../../store/ui';
 import { Thumb } from '../chat/MessageView';
 import type { MaskHandle } from './MaskCanvas';
 import { CutoutTab } from './Cutout';
+import { CropTab } from './Crop';
 
-export type ActionTab = 'info' | 'edit' | 'img2img' | 'cutout' | 'character' | 'style' | 'pose' | 'describe' | 'upscale';
+export type ActionTab = 'info' | 'edit' | 'img2img' | 'crop' | 'cutout' | 'character' | 'style' | 'pose' | 'describe' | 'upscale';
 
 interface Props {
   project: Project;
@@ -65,6 +67,7 @@ const TABS: { id: ActionTab; label: string; icon: ReactNode }[] = [
   { id: 'info', label: 'Info', icon: <Info size={14} /> },
   { id: 'edit', label: 'Edit / Inpaint', icon: <Brush size={14} /> },
   { id: 'img2img', label: 'img2img', icon: <Layers size={14} /> },
+  { id: 'crop', label: 'Crop & resize', icon: <CropIcon size={14} /> },
   { id: 'cutout', label: 'Remove background', icon: <Scissors size={14} /> },
   { id: 'character', label: 'Extract character', icon: <UserRound size={14} /> },
   { id: 'style', label: 'Extract style', icon: <Palette size={14} /> },
@@ -113,6 +116,7 @@ export function ActionsPanel(props: Props) {
         {tab === 'info' && <InfoTab {...props} caps={caps} />}
         {tab === 'edit' && <EditTab {...props} caps={editCaps} />}
         {tab === 'img2img' && <Img2ImgTab {...props} caps={i2iCaps} />}
+        {tab === 'crop' && <CropTab project={project} image={props.image} />}
         {tab === 'cutout' && <CutoutTab project={project} image={props.image} />}
         {tab === 'character' && <CharacterTab {...props} caps={caps} />}
         {tab === 'style' && <StyleTab {...props} caps={caps} />}

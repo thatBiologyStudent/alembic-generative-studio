@@ -10,6 +10,7 @@ import { useUI } from '../../store/ui';
 import { ActionsPanel, type ActionTab } from './ActionsPanel';
 import { MaskCanvas, type MaskHandle } from './MaskCanvas';
 import { CutoutStage } from './Cutout';
+import { CropStage } from './Crop';
 import { useSprite } from '../../agent/sprite';
 
 export function Viewer({ project, imageId }: { project: Project; imageId: string }) {
@@ -148,6 +149,7 @@ export function Viewer({ project, imageId }: { project: Project; imageId: string
             ) : (
               <img src={url} alt={img.prompt ?? ''} className="absolute inset-0 h-full w-full select-none" draggable={false} />
             )}
+            {tab === 'crop' && <CropStage image={img} width={fit.w} height={fit.h} />}
             {tab === 'edit' && <MaskCanvas key={img.id} ref={mask} width={img.width} height={img.height} brush={brush} erase={erase} />}
           </div>
         )}
