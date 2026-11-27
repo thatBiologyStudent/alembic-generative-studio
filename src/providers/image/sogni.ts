@@ -86,6 +86,7 @@ interface Workflow {
   waitingReason?: string;
   steps?: { status?: string; error?: unknown; artifacts?: { url?: string; mediaType?: string; type?: string; mimeType?: string }[] }[];
   artifacts?: { url?: string; mediaType?: string; type?: string; mimeType?: string }[];
+  events?: unknown[];
   error?: unknown;
 }
 
@@ -218,18 +219,21 @@ export class SogniImageBackend implements ImageBackend {
     }
     // result links live in "artifacts" (top level and/or per step); field names vary, so collect every link in them
     let urls = artifactUrls(wf, media);
+    let ev: any;
     if (!urls.length) {
       // fall back to the event log: artifact_created / step_completed events carry the same links
-      const ev = await apiJson<any>(this.u(`/v1/creative-agent/workflows/${encodeURIComponent(id)}/events`), { headers: this.headers(), signal }).catch(() => undefined);
+      ev = await apiJson<any>(this.u(`/v1/creative-agent/workflows/${encodeURIComponent(id)}/events`), { headers: this.headers(), signal }).catch(() => undefined);
       urls = artifactUrls(ev?.data ?? ev, media, true);
     }
     if (!urls.length) {
-      console.warn('Sogni workflow without image links:', wf);
-      const why = [wf.error, ...(wf.steps ?? []).map((s) => s.error)].filter(Boolean).map((e) => (typeof e === 'string' ? e : (e as any)?.message ?? JSON.stringify(e)));
-      throw new Error(
-        `Sogni finished the workflow (${wf.status}) but Alembic found no image link in it${why.length ? `: ${why.join('; ').slice(0, 300)}` : ''}. ` +
-          `Workflow ${id}; fields: ${describeShape(wf)}. Please report this.`,
-      );
+      console.warn('Sogni workflow without image links:', wf, ev);
+      // a failed run: say why, in Sogni's own words (steps and failure events carry the reason)
+      const reasons = failureReasons([wf.error, wf.steps, wf.events, ev?.data ?? ev]);
+      if (wf.status !== 'completed' || reasons.length) {
+        const why = reasons.length ? reasons.join(' · ') : 'Sogni gave no reason';
+        throw new Error(`Sogni could not generate the image (${wf.status}): ${why}${hint(why)}`);
+      }
+      throw new Error(`Sogni finished the workflow but Alembic found no image link in it. Workflow ${id}; fields: ${describeShape(wf)}. Please report this.`);
     }
     const out: GenImage[] = [];
     for (const u of urls) out.push({ blob: await (await apiFetch(via(this.conn, u), { signal })).blob() });
@@ -239,6 +243,43 @@ export class SogniImageBackend implements ImageBackend {
 }
 
 const NOT_IMAGE = /\.(mp4|webm|mov|mp3|wav|flac|m4a|glb|gltf|json|txt)(\?|$)/i;
+
+/**
+ * Error texts from a failed workflow: error / message / reason fields in steps, failure events and the event log.
+ * Ordinary progress messages ("step started") are skipped: only objects that say they failed or carry an error count.
+ */
+function failureReasons(roots: unknown[]): string[] {
+  const out: string[] = [];
+  const add = (s: unknown) => {
+    const t = typeof s === 'string' ? s.trim() : typeof s === 'number' ? `code ${s}` : '';
+    if (t && !out.includes(t) && out.length < 4) out.push(t.slice(0, 240));
+  };
+  const walk = (v: unknown, failing: boolean, depth: number) => {
+    if (depth > 7 || v == null) return;
+    if (typeof v === 'string') return failing ? add(v) : undefined;
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, failing, depth + 1));
+    if (typeof v !== 'object') return;
+    const o = v as Record<string, unknown>;
+    const failed = failing || /fail|error|cancel/i.test(`${o.status ?? ''} ${o.type ?? ''} ${o.event ?? ''}`);
+    for (const [k, x] of Object.entries(o)) {
+      if (/^(input|arguments|plan|media_?references|billingPreviews?|dispatchLedger|agentTelemetry|llmAttribution)$/i.test(k)) continue;
+      if (/^(error|errorMessage|error_message|failureReason|reason|lastError|detail)$/i.test(k)) walk(x, true, depth + 1);
+      else if (failed && /^(message|errorCode|error_code|code)$/i.test(k)) walk(x, true, depth + 1);
+      else if (typeof x === 'object') walk(x, failed && /data|payload|result/i.test(k), depth + 1);
+    }
+  };
+  roots.forEach((r) => walk(r, false, 0));
+  return out;
+}
+
+/** What to do about the failures Sogni documents. */
+function hint(why: string): string {
+  if (/4103|consent|likeness/i.test(why)) return '. This model needs the one-time likeness and consent agreement, accepted in the Sogni app.';
+  if (/insufficient|balance|credit|402/i.test(why)) return '. Top up Spark, use Z-Image Turbo on the free credits, or a model your plan covers.';
+  if (/filter|sensitive|nsfw|safety|moderat/i.test(why)) return '. Sogni\'s content filter refused it; the Sensitive Content Filter option on the connection only works for eligible accounts.';
+  if (/subscription|eligible|not allowed|forbidden|403/i.test(why)) return '. Your Sogni account may not be eligible for this (e.g. turning the content filter off needs a subscription or Premium Spark).';
+  return '.';
+}
 
 /**
  * Every http(s) link found inside "artifacts" arrays (any depth, any field name: url, uri, downloadUrl, urls[]…),
