@@ -6,7 +6,7 @@ import { autoSave } from '../lib/output';
 import type { GenParams, ImageBackend } from '../providers/image/types';
 import { useUI } from '../store/ui';
 import { afterGenerate, spriteNegative, spriteOf, withSpriteClause } from './sprite';
-import { activeStyle, withStyle } from '../lib/styles';
+import { activePresets, withCharacters, withStyle } from '../lib/styles';
 import { POSE_IMAGE_NOTE, poseFor, withPoseText } from './pose';
 
 export interface SlotTarget {
@@ -204,9 +204,13 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
       if (params.negative && d.negative && op.params.negative && !op.params.negative.includes(d.negative)) {
         params.negative = `${op.params.negative}, ${d.negative}`;
       }
-      // the project's style preset, when one is switched on (not in reference mode: the reference's own style must win there)
-      const style = op.references?.length ? undefined : await activeStyle(project);
-      if (style) params.prompt = withStyle(params.prompt, style.prompt, backend.capabilities.promptStyle === 'tags');
+      // the project's active presets (not in reference mode: the reference's own character and style must win there)
+      if (!op.references?.length) {
+        const { style, characters } = await activePresets(project);
+        const tags = backend.capabilities.promptStyle === 'tags';
+        params.prompt = withCharacters(params.prompt, characters, tags);
+        if (style) params.prompt = withStyle(params.prompt, style.prompt, tags);
+      }
       const sprite = spriteOf(project);
       if (sprite.enabled) {
         params.prompt = withSpriteClause(params.prompt, project, backend.capabilities.promptStyle);
@@ -262,7 +266,14 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
       const inputs = [...refs.map((r) => r.blob), ...(pose ? [pose.image] : [])];
       if (!inputs.length) throw new Error('Nothing to send as a reference image.');
       const sprite = spriteOf(project);
-      let prompt = sprite.enabled ? withSpriteClause(op.params.prompt, project, 'natural') : op.params.prompt;
+      let prompt = op.params.prompt;
+      // only a pose image goes along: the active presets still apply
+      if (!refs.length) {
+        const { style, characters } = await activePresets(project);
+        prompt = withCharacters(prompt, characters, false);
+        if (style) prompt = withStyle(prompt, style.prompt, false);
+      }
+      if (sprite.enabled) prompt = withSpriteClause(prompt, project, 'natural');
       if (pose) prompt = `${withPoseText(prompt, pose.description, false)}\n\n${refs.length ? POSE_IMAGE_NOTE : POSE_IMAGE_NOTE.replace('The last reference image', 'The reference image')}`;
       // one request per image: reference models mostly return one image, and some ignore n
       const imgs = [];

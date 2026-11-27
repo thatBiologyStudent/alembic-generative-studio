@@ -2,12 +2,19 @@ import { maxRetries, verifyEnabled, type Connection, type Project } from '../db/
 import type { BackendCapabilities } from '../providers/image/types';
 import { describeSize } from '../lib/size';
 import { describeRecommended, mismatch, type Recommended } from '../lib/recommended';
+import type { Preset } from '../lib/styles';
 
 export function systemPrompt(
   project: Project,
   conn: Connection | undefined,
   caps: BackendCapabilities | undefined,
-  slots: { canEdit: boolean; canUpscale: boolean; rec?: Recommended & { model: string } } = { canEdit: true, canUpscale: true },
+  slots: {
+    canEdit: boolean;
+    canUpscale: boolean;
+    rec?: Recommended & { model: string };
+    /** switched-on presets, and the saved characters that are not switched on */
+    presets?: { style?: Preset; characters: Preset[]; saved: Preset[] };
+  } = { canEdit: true, canUpscale: true },
 ): string {
   const d = project.defaults;
   const lines = [
@@ -108,9 +115,31 @@ export function systemPrompt(
   } else {
     lines.push('', 'No image model is selected yet. If the user asks for images, tell them to pick an image model with the picker under the chat box.');
   }
-  if (project.characters.length) {
-    lines.push('', 'Saved characters in this project (reuse their prompt text verbatim for consistency when the user mentions them):');
-    for (const c of project.characters) lines.push(`- ${c.name}: ${c.prompt}`);
+  const pr = slots.presets;
+  if (pr?.characters.length) {
+    lines.push(
+      '',
+      `ACTIVE CHARACTER PRESET${pr.characters.length > 1 ? 'S' : ''} (switched on by the user, authoritative for how ${pr.characters.length > 1 ? 'these characters look' : 'this character looks'}):`,
+      ...pr.characters.map((c) => `- ${c.name}: ${c.prompt}`),
+      'The image tools add these descriptions to every new image automatically (generate_image, generate_batch, direct prompts). Do not copy them into your prompts and never contradict them: ' +
+        'refer to the character by name or as "the character", and write only the scene, action, expression, composition and anything the user explicitly wants different for this image (e.g. another outfit). ' +
+        'If the user describes the character differently in chat, the preset wins for everything they did not explicitly ask to change. In character reference mode the reference image decides instead and the presets are not added.',
+    );
+  }
+  if (pr?.style) {
+    lines.push(
+      '',
+      `ACTIVE ART STYLE PRESET "${pr.style.name}" (switched on by the user, authoritative):`,
+      pr.style.prompt,
+      'The image tools add this style to every new image automatically. It decides the art style, whatever style the user describes in chat: write prompts for subject, scene, composition, lighting mood and colours of objects only, ' +
+        'and never add art-style, medium, artist, franchise-style or rendering words (e.g. "anime style", "photorealistic", "oil painting", "in the style of X") that would compete with it. ' +
+        'If the user asks for a different art style, keep the preset and say in one sentence that the active style preset decides the style; they can switch it off with the palette button in the chat box. ' +
+        'In character reference mode the reference image keeps its own style and the preset is not added.',
+    );
+  }
+  if (pr?.saved.length) {
+    lines.push('', 'Saved character presets that are not switched on (reuse their text verbatim for consistency when the user mentions them by name):');
+    for (const c of pr.saved.slice(0, 20)) lines.push(`- ${c.name}: ${c.prompt}`);
   }
   if (project.notes?.trim()) lines.push('', 'Project brief from the user:', project.notes.trim());
   return lines.join('\n');

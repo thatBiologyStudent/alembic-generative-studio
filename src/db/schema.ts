@@ -24,6 +24,8 @@ export interface GenDefaults {
   refTolerance?: number;
   /** style preset (id) added to every new txt2img prompt in this project */
   stylePreset?: string;
+  /** character presets (ids) added to every new txt2img prompt in this project */
+  characterPresets?: string[];
   /** pose references: scale and centre the figure to fill the frame (default on) */
   poseFit?: boolean;
   /** steps / CFG for the img2img and Edit models (their models often want other values than the txt2img model); unset = steps/cfg above */

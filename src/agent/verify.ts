@@ -4,6 +4,7 @@ import type { GenParams } from '../providers/image/types';
 import { useUI } from '../store/ui';
 import { referenceTarget, runImageOp } from './generate';
 import { poseFor } from './pose';
+import { activePresets, presetCheckText } from '../lib/styles';
 import { autoSave } from '../lib/output';
 import { askVision, askVisionParts, imageDataUrl } from './vision';
 import { extractCharacterPrompt } from './prompts';
@@ -261,7 +262,10 @@ export async function generateChecked(
   const refs = opts?.references;
   // the check also judges the pose when one was given
   const poseText = opts?.pose ? (await poseFor(opts.pose, params.width ?? project.defaults.width, params.height ?? project.defaults.height, { fit: project.defaults.poseFit !== false }))?.description : '';
-  const checkRequest = poseText ? `${request}\nRequired ${poseText.charAt(0).toLowerCase()}${poseText.slice(1)} (judge the pose loosely: the overall position of arms, legs and body)` : request;
+  let checkRequest = poseText ? `${request}\nRequired ${poseText.charAt(0).toLowerCase()}${poseText.slice(1)} (judge the pose loosely: the overall position of arms, legs and body)` : request;
+  // active character / style presets are part of every request (not in reference mode, where the reference decides)
+  const presetText = refs?.length ? '' : presetCheckText(await activePresets(project));
+  if (presetText) checkRequest = `${checkRequest}\n${presetText}`;
   let gp = params;
   let settingsNote = '';
   // reference mode keeps the full character description and adds what came out different, instead of letting the checker rewrite the prompt

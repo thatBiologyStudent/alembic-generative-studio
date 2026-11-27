@@ -28,12 +28,12 @@ import { resolveSlot, runImageOp } from '../../agent/generate';
 import { ModelPicker } from '../chat/ModelPicker';
 import { askVision } from '../../agent/runAgent';
 import { describePrompt, DETAILS, extractCharacterPrompt, extractStylePrompt, type Detail } from '../../agent/prompts';
-import { deleteStyle, saveStyle, useStyles } from '../../lib/styles';
+import { deletePreset, deleteStyle, savePreset, saveStyle, usePresets, useStyles } from '../../lib/styles';
+import { activeIds, setActive as setPresetActive } from '../chat/PresetMenu';
 import { poseOf } from '../../agent/pose';
 import { getImageBackend } from '../../providers/image';
 import type { BackendCapabilities } from '../../providers/image/types';
 import { errMsg } from '../../lib/http';
-import { uid } from '../../lib/id';
 import { Spinner } from '../../components/common';
 import { useUI } from '../../store/ui';
 import { Thumb } from '../chat/MessageView';
@@ -449,6 +449,8 @@ function CharacterTab({ project, image, caps }: TabProps) {
   useEffect(() => setText(''), [image.id]);
   const style = caps?.promptStyle ?? 'tags';
   const gen = useRunner();
+  const chars = usePresets('character');
+  const activeChars = activeIds(project, 'character');
 
   return (
     <div className="space-y-2.5">
@@ -466,12 +468,12 @@ function CharacterTab({ project, image, caps }: TabProps) {
           className="btn"
           disabled={!text.trim() || !name.trim()}
           onClick={async () => {
-            await updateProject(project.id, { characters: [...project.characters, { id: uid(), name: name.trim(), prompt: text.trim(), imageId: image.id }] });
-            toast(`Saved "${name.trim()}" — insert it from the chat composer`, 'success');
+            await savePreset('character', { name: name.trim(), prompt: text.trim(), imageId: image.id, model: image.model });
+            toast(`Saved character "${name.trim()}": switch it on with the person button in the chat box`, 'success');
             setName('');
           }}
         >
-          <Save size={13} /> Save character
+          <Save size={13} /> Save as preset
         </button>
         <button className="btn" disabled={!text.trim()} onClick={() => (navigator.clipboard.writeText(text), toast('Copied', 'info'))}>
           <Copy size={13} /> Copy
@@ -483,20 +485,34 @@ function CharacterTab({ project, image, caps }: TabProps) {
           {gen.busy ? <Spinner /> : <Wand2 size={13} />} Generate with it
         </button>
       </Row>
-      {!!project.characters.length && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {project.characters.map((c) => (
-            <span key={c.id} className="flex items-center gap-1 rounded-full border border-line bg-panel2 py-0.5 pr-1 pl-2 text-xs" title={c.prompt}>
-              {c.name}
-              <button
-                className="rounded-full p-0.5 text-zinc-500 hover:text-red-400"
-                onClick={() => updateProject(project.id, { characters: project.characters.filter((x) => x.id !== c.id) })}
-                title="Remove"
-              >
-                <XCircle size={12} />
-              </button>
-            </span>
-          ))}
+      {!!chars.length && (
+        <div className="space-y-1 pt-1">
+          <div className="text-[11px] text-muted">Character presets (all projects) · click to add to every new image in this project</div>
+          <div className="flex flex-wrap gap-1.5">
+            {chars.map((c) => {
+              const on = activeChars.includes(c.id);
+              return (
+                <span
+                  key={c.id}
+                  className={`flex items-center gap-1 rounded-full border py-0.5 pr-1 pl-2 text-xs ${on ? 'border-accent bg-accent/20 text-white' : 'border-line bg-panel2'}`}
+                  title={c.prompt}
+                >
+                  <button onClick={() => void setPresetActive(project, 'character', c.id, !on)}>{c.name}</button>
+                  <button
+                    className="rounded-full p-0.5 text-zinc-500 hover:text-red-400"
+                    onClick={async () => {
+                      if (!confirm(`Delete the character preset "${c.name}"? It is removed from all projects.`)) return;
+                      if (on) await setPresetActive(project, 'character', c.id, false);
+                      await deletePreset('character', c.id);
+                    }}
+                    title="Delete preset"
+                  >
+                    <XCircle size={12} />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -544,7 +560,7 @@ function StyleTab({ project, image, caps }: TabProps) {
           disabled={!text.trim() || !name.trim()}
           onClick={async () => {
             await saveStyle({ name: name.trim(), prompt: text.trim(), imageId: image.id, model: image.model });
-            toast(`Saved style "${name.trim()}": use it from the palette button in the chat box`, 'success');
+            toast(`Saved style "${name.trim()}": switch it on with the palette button in the chat box`, 'success');
             setName('');
           }}
         >

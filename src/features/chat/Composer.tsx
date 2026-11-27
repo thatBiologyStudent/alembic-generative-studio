@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Accessibility, ArrowUp, Bot, Brush, ImageIcon, ImagePlus, Images, ListOrdered, Palette, Paperclip, Square, UserRound, Wand2, X } from 'lucide-react';
-import { useStyles } from '../../lib/styles';
+import { ActivePresetChips, PresetMenu } from './PresetMenu';
 import { db, maxRetries, refRetries, refTolerance, type ImageSlot } from '../../db/schema';
 import type { Project } from '../../db/schema';
 import { saveImage, updateProject } from '../../db/repo';
@@ -19,10 +19,6 @@ const EMPTY: string[] = [];
 export function Composer({ project }: { project: Project }) {
   const [text, setText] = useState('');
   const [mode, setMode] = useState<'agent' | 'direct'>(() => (safeGet('composerMode') as any) || 'agent');
-  const [charMenu, setCharMenu] = useState(false);
-  const [styleMenu, setStyleMenu] = useState(false);
-  const styles = useStyles();
-  const activeStyle = styles.find((st) => st.id === project.defaults.stylePreset);
   const [batch, setBatch] = useState(() => safeGet('composerBatch') === '1');
   const setBatchP = (b: boolean) => {
     setBatch(b);
@@ -124,6 +120,7 @@ export function Composer({ project }: { project: Project }) {
         else void addFiles(e.dataTransfer.files);
       }}
     >
+      <ActivePresetChips project={project} />
       {poseId && <PoseChip project={project} poseId={poseId} />}
       {!!attachments.length && (
         <div className="mb-2 flex flex-wrap gap-1.5">
@@ -214,79 +211,8 @@ export function Composer({ project }: { project: Project }) {
           <button className="btn-ghost" title="Attach images, or a pose file (.json from the 3D Openpose Editor or OpenPose, experimental)" onClick={() => fileRef.current?.click()}>
             <Paperclip size={15} />
           </button>
-          {!!project.characters.length && (
-            <div className="relative">
-              <button className="btn-ghost" title="Insert saved character" onClick={() => setCharMenu((v) => !v)}>
-                <UserRound size={15} />
-              </button>
-              {charMenu && (
-                <div className="absolute bottom-9 left-0 z-20 w-64 rounded-lg border border-line bg-panel2 p-1 shadow-xl" onMouseLeave={() => setCharMenu(false)}>
-                  {project.characters.map((c) => (
-                    <button
-                      key={c.id}
-                      className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-zinc-800"
-                      onClick={() => {
-                        setText((t) => (t ? `${t.trimEnd()} ` : '') + (mode === 'agent' ? `${c.name} (${c.prompt})` : c.prompt));
-                        setCharMenu(false);
-                        ta.current?.focus();
-                      }}
-                    >
-                      <div className="font-medium text-zinc-200">{c.name}</div>
-                      <div className="truncate text-muted">{c.prompt}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {!!styles.length && (
-            <div className="relative">
-              <button
-                className={`btn-ghost ${activeStyle ? 'text-accent' : ''}`}
-                title={activeStyle ? `Style "${activeStyle.name}" is added to every new image` : 'Style presets'}
-                onClick={() => setStyleMenu((v) => !v)}
-              >
-                <Palette size={15} />
-              </button>
-              {styleMenu && (
-                <div className="absolute bottom-9 left-0 z-20 w-72 rounded-lg border border-line bg-panel2 p-1 shadow-xl" onMouseLeave={() => setStyleMenu(false)}>
-                  <div className="px-2 py-1 text-[11px] text-muted">Click a name to insert it; "Always" adds it to every new image in this project.</div>
-                  {styles.map((st) => (
-                    <div key={st.id} className="flex items-start gap-1 rounded px-2 py-1.5 hover:bg-zinc-800">
-                      <button
-                        className="min-w-0 flex-1 text-left text-xs"
-                        onClick={() => {
-                          setText((t) => (t ? `${t.trimEnd()}, ` : '') + st.prompt);
-                          setStyleMenu(false);
-                          ta.current?.focus();
-                        }}
-                      >
-                        <div className="font-medium text-zinc-200">{st.name}</div>
-                        <div className="truncate text-muted">{st.prompt}</div>
-                      </button>
-                      <button
-                        className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${project.defaults.stylePreset === st.id ? 'border-accent bg-accent/20 text-white' : 'border-line text-muted hover:text-white'}`}
-                        onClick={() => void updateProject(project.id, { defaults: { ...project.defaults, stylePreset: project.defaults.stylePreset === st.id ? undefined : st.id } })}
-                        title="Add this style to every new image in this project"
-                      >
-                        Always
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {activeStyle && (
-            <button
-              className="flex max-w-[9rem] items-center gap-1 truncate rounded-full border border-accent/50 bg-accent/10 px-2 py-0.5 text-[10px] text-zinc-200"
-              title={`Added to every new image: ${activeStyle.prompt}\nClick to turn off`}
-              onClick={() => void updateProject(project.id, { defaults: { ...project.defaults, stylePreset: undefined } })}
-            >
-              <span className="truncate">{activeStyle.name}</span>
-              <X size={10} className="shrink-0" />
-            </button>
-          )}
+          <PresetMenu project={project} kind="character" icon={<UserRound size={15} />} />
+          <PresetMenu project={project} kind="style" icon={<Palette size={15} />} />
           <div className="ml-1 flex rounded-lg border border-line p-0.5 text-xs">
             <button
               className={`flex items-center gap-1 rounded-md px-2 py-0.5 ${mode === 'agent' ? 'bg-zinc-700 text-white' : 'text-muted'}`}

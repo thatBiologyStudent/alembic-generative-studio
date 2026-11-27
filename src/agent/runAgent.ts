@@ -12,6 +12,7 @@ import { editChecked, generateChecked } from './verify';
 import { generateFromReference } from './reference';
 import { listModelsTool, requestModelChange } from './modelTools';
 import { systemPrompt } from './prompts';
+import { activePresets, listPresets } from '../lib/styles';
 import { buildTools } from './tools';
 import { recommendedFor } from '../lib/recommended';
 
@@ -307,10 +308,12 @@ export async function runAgent(projectId: string, text: string, imageIds: string
       const editTarget = caps ? await resolveSlot(project, 'edit') : undefined;
       const canUpscale = caps ? !!(await resolveSlot(project, 'upscale')) : false;
       const rec = caps?.steps ? await recommendedFor(project).catch(() => undefined) : undefined;
+      const act = await activePresets(project);
+      const presets = { ...act, saved: (await listPresets('character')).filter((c) => !act.characters.some((a) => a.id === c.id)) };
       try {
         res = await llm.chat({
           model,
-          system: systemPrompt(project, imgConn, caps, { canEdit: !!editTarget?.backend.capabilities.img2img, canUpscale, rec }),
+          system: systemPrompt(project, imgConn, caps, { canEdit: !!editTarget?.backend.capabilities.img2img, canUpscale, rec, presets }),
           messages: history,
           tools: caps ? buildTools(caps, { edit: editTarget?.backend.capabilities, canUpscale }) : undefined,
           signal: ctrl.signal,
