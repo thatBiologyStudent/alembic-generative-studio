@@ -83,13 +83,13 @@ export const PRESETS: Preset[] = [
   {
     id: 'sogni',
     name: 'Sogni AI',
-    group: 'Free',
+    group: 'Aggregators & subscriptions',
     baseUrl: 'https://api.sogni.ai',
     imageApi: 'sogni',
     keyRequired: true,
     keyUrl: 'https://dashboard.sogni.ai/api-keys',
     note:
-      'Freemium, decentralised GPU network. Z-Image Turbo runs on the free daily credits; an Unlimited plan covers every Sogni-run model (marked [Unlimited] in the model picker), ' +
+      'Paid with Spark tokens or an Unlimited subscription, on a decentralised GPU network (Z-Image Turbo also runs on small free daily credits). An Unlimited plan covers every Sogni-run model (marked [Unlimited] in the model picker), ' +
       'while vendor models such as GPT Image always cost Premium Spark. Text-to-image (Z-Image, Krea 2, MOSS, FLUX 3 Klein, Qwen, Chroma, SDXL and Pony checkpoints) and edits with reference images ' +
       '(Qwen Image Edit, Krea 2 Identity Edit, FLUX 3 Klein, GPT Image). Create a developer key (sogni_dev_…) with a spending limit. Needs "Route through proxy" (on by default).',
     link: { label: 'Sogni API docs', url: 'https://docs.sogni.ai/api-reference/' },
