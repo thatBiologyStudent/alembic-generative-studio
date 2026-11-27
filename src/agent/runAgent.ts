@@ -114,7 +114,17 @@ function sizeFromArgs(d: GenDefaults, args: any): { width: number; height: numbe
   return sizeFor(aspect ?? d.width / d.height, edge ?? Math.sqrt(d.width * d.height));
 }
 
-function genParams(project: Project, args: any) {
+/** Did the user's message ask for a size, ratio or orientation? Without that, the assistant keeps the project's size. */
+export function asksForSize(text: string): boolean {
+  return /\d+\s*[x×*]\s*\d+|\b\d+(?:[.,]\d+)?\s*k\b|\b\d+(?:[.,]\d+)?\s*(?::|\/|by)\s*\d+(?:[.,]\d+)?\b|\b\d+\s*(?:px|pixels?|mp)\b|megapixel|portrait|landscape|widescreen|panoram|square|vertical|horizontal|\bwide\b|\btall\b|banner|wallpaper|resolution|\bsize\b|aspect|ratio|bigger|smaller|larger|\bhd\b|hochformat|querformat|auflösung|größe|seitenverhältnis/i.test(text);
+}
+
+/** Size arguments the assistant may only pass when the user asked for a size in this message. */
+const SIZE_ARGS = ['aspect_ratio', 'resolution', 'width', 'height'];
+const withoutSize = (args: any) => Object.fromEntries(Object.entries(args ?? {}).filter(([k]) => !SIZE_ARGS.includes(k)));
+
+function genParams(project: Project, args: any, turn?: Turn) {
+  if (turn && !turn.sizeAsked) args = withoutSize(args);
   const size = sizeFromArgs(project.defaults, args);
   return {
     size,
@@ -167,7 +177,7 @@ async function execTool(
       return { ...base, content: r.text, isError: !r.ok };
     }
     if (name === 'generate_image') {
-      const { size, params } = genParams(project, args);
+      const { size, params } = genParams(project, args, turn);
       const refs = await ownImages(project, args.reference_image_ids);
       const r = refs.length
         ? await generateFromReference(project, refs, params.prompt, signal, params, request, turn.pose)
@@ -192,7 +202,7 @@ async function execTool(
         const it = typeof items[i] === 'string' ? { prompt: items[i] } : items[i];
         const label = it.label || it.name || `item ${i + 1}`;
         try {
-          const { params } = genParams(project, { aspect_ratio: args.aspect_ratio, resolution: args.resolution, negative_prompt: args.negative_prompt, count: args.count_per_item, ...it });
+          const { params } = genParams(project, { aspect_ratio: args.aspect_ratio, resolution: args.resolution, negative_prompt: args.negative_prompt, count: args.count_per_item, ...it }, turn);
           const refs = await ownImages(project, it.reference_image_ids ?? args.reference_image_ids);
           const req = `${request}\n(Batch item: ${label})`;
           const r = refs.length ? await generateFromReference(project, refs, params.prompt, signal, params, req, turn.pose) : await generateChecked(project, params, req, signal, { pose: turn.pose });
@@ -213,7 +223,7 @@ async function execTool(
     }
     if (name === 'update_settings') {
       const d = project.defaults;
-      const next: GenDefaults = { ...d, ...(sizeFromArgs(d, args) ?? {}) };
+      const next: GenDefaults = { ...d, ...(turn.sizeAsked ? (sizeFromArgs(d, args) ?? {}) : {}) };
       if (num(args.count)) next.count = clamp(num(args.count), 1, 8)!;
       if (num(args.steps)) next.steps = num(args.steps)!;
       if (num(args.cfg) !== undefined) next.cfg = num(args.cfg)!;
@@ -267,6 +277,8 @@ interface Turn {
   refused?: number;
   /** pose reference for every generation in this message */
   pose?: string;
+  /** the user's message asked for a size: only then may the assistant pass size arguments (models like to fill in 1k) */
+  sizeAsked?: boolean;
 }
 const GENERATING = new Set(['generate_image', 'generate_batch', 'edit_image']);
 
@@ -288,7 +300,7 @@ export async function runAgent(projectId: string, text: string, imageIds: string
       ...(pose ? { pose } : {}),
     });
 
-    const turn: Turn = { limitHit: false, pose };
+    const turn: Turn = { limitHit: false, pose, sizeAsked: asksForSize(text) };
     for (let step = 0; step < MAX_STEPS; step++) {
       const project = await db.projects.get(projectId);
       if (!project) return;

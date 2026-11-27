@@ -162,9 +162,17 @@ export function GenSettings({ project, onClose }: { project: Project; onClose: (
           </p>
         )}
         {!custom && cur.tier < 1 && (
-          <p className="-mt-1 text-[11px] text-muted">
-            Icon sizes are generated at ~1k with the same ratio and scaled down to {d.width}×{d.height}: sharper, and it works with every provider.
-          </p>
+          <div className="-mt-1 space-y-1">
+            <label className="flex items-center gap-2 text-xs text-zinc-300" title="For models that make poor images at small sizes or refuse them (many SD 1.5 / SDXL models, Nano Banana, GPT Image)">
+              <input type="checkbox" checked={!!d.smallAt1k} onChange={(e) => set({ smallAt1k: e.target.checked })} />
+              Generate at ~1k and scale down
+            </label>
+            <p className="text-[11px] text-muted">
+              {d.smallAt1k
+                ? `Generated at ~1k with the same ratio and scaled down to ${d.width}×${d.height}: sharper on models that struggle with small sizes, but costs like a 1k image.`
+                : `Asked for at this size (rounded to multiples of 16). Providers that can't go this small return a larger image, which is scaled down to ${d.width}×${d.height}.`}
+            </p>
+          </div>
         )}
         {!custom && cur.tier >= 3 && (
           <p className="-mt-1 text-[11px] text-muted">

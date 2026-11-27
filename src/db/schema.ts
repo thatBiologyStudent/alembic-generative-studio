@@ -28,6 +28,8 @@ export interface GenDefaults {
   characterPresets?: string[];
   /** exact width × height typed in by the user instead of aspect ratio + resolution tier */
   customSize?: boolean;
+  /** 0.25k / 0.5k: generate at ~1k and scale down instead of asking for the small size (for models that do small sizes badly) */
+  smallAt1k?: boolean;
   /** pose references: scale and centre the figure to fill the frame (default on) */
   poseFit?: boolean;
   /** steps / CFG for the img2img and Edit models (their models often want other values than the txt2img model); unset = steps/cfg above */

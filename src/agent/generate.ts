@@ -408,8 +408,14 @@ async function exactSize(blob: Blob, width: number, height: number, d: GenDefaul
   return { blob: await coverResize(blob, width, height), scaledFrom: `${got.width}×${got.height}` };
 }
 
-/** The size actually requested from the provider: the 0.25k / 0.5k tiers render at ~1k with the same ratio (exact sizes typed by hand are sent as they are). */
+/**
+ * The size actually requested from the provider. Icon tiers (0.25k / 0.5k) are asked for at their own size, rounded to
+ * multiples of 16 (generators need that; the result is cropped to the exact size), or at ~1k and scaled down when the user
+ * turned that on. Exact sizes typed by hand are sent as they are.
+ */
 function renderSize(width: number, height: number, d: GenDefaults): { width: number; height: number } {
   if (d.customSize || !width || !height || Math.sqrt(width * height) >= SMALL_EDGE) return { width, height };
-  return sizeFor(width / height, 1024);
+  if (d.smallAt1k) return sizeFor(width / height, 1024);
+  const r16 = (v: number) => Math.max(64, Math.round(v / 16) * 16);
+  return { width: r16(width), height: r16(height) };
 }
