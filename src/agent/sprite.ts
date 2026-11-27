@@ -102,8 +102,35 @@ export function spriteNegative(color: string): string {
 /** Adds the sprite clause unless the prompt already has one (rerolls reuse the saved prompt). */
 export function withSpriteClause(prompt: string, project: Project, style?: 'tags' | 'natural'): string {
   const s = spriteOf(project);
-  if (!s.enabled || prompt.includes(MARK)) return prompt;
-  return `${prompt.trim().replace(/[.,\s]+$/, '')}, ${spriteClause(s.color, style)}`;
+  if (!s.enabled) return prompt;
+  // rerolls reuse the saved prompt: clean only the part before the clause
+  const at = prompt.indexOf(MARK);
+  if (at >= 0) {
+    const start = Math.max(prompt.lastIndexOf('simple background,', at), prompt.lastIndexOf('isolated on a', at));
+    const head = start >= 0 ? prompt.slice(0, start) : prompt.slice(0, at);
+    return `${stripBackground(head)}, ${prompt.slice(start >= 0 ? start : at)}`;
+  }
+  return `${stripBackground(prompt)}, ${spriteClause(s.color, style)}`;
+}
+
+/**
+ * Removes background wording that would compete with the sprite colour ("white background", "on a plain grey backdrop",
+ * "simple background", "detailed forest background", "background: …"): image models follow the first background they read.
+ */
+export function stripBackground(prompt: string): string {
+  const adj = '(?:(?:plain|simple|solid|pure|flat|clean|blank|neutral|uniform|light|dark|bright|soft|pale|muted|detailed|empty|studio|gradient|transparent|[a-z]+-?(?:ish|colou?red))\\s+)*';
+  const colour = '(?:(?!(?:the|a|an|in|on|of)\\b)(?:#[0-9a-f]{3,8}|[a-z]+)\\s+)?';
+  const lead = '(?:(?:isolated\\s+|set\\s+|placed\\s+)?(?:on|against|over|in front of|with|in)\\s+(?:an?\\s+|the\\s+)?)?';
+  return prompt
+    .replace(/\bbackground\s*:\s*[^.,;\n]*/gi, '')
+    // "in the background of …" is about position, not the backdrop: keep it
+    .replace(new RegExp(`\\b${lead}${adj}${colour}${adj}(?:background|backdrop|bg)\\b(?!\\s+of\\b)`, 'gi'), '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s+([,.;])/g, '$1')
+    .replace(/\.\s*[,;]/g, '.')
+    .replace(/([,;])(\s*[,;])+/g, '$1')
+    .replace(/^[\s,.;]+|[\s,.;]+$/g, '')
+    .replace(/[ \t]{2,}/g, ' ');
 }
 
 // ---------------- UI state ----------------

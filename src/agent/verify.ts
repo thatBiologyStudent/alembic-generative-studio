@@ -146,6 +146,14 @@ export async function checkImage(
   checklist?: string,
 ): Promise<CheckResult> {
   let res: CheckResult;
+  // sprite mode: the solid background is on purpose (it is removed afterwards), whatever background the request names
+  const sprite = typeof img.params?.sprite === 'string' ? img.params.sprite : undefined;
+  const spriteNote = sprite
+    ? `\n\nSPRITE MODE: this image was deliberately generated on a solid ${sprite} background, which is removed afterwards to make a transparent sprite. ` +
+      'Ignore every background, backdrop, scenery and setting requirement in the request and never fail the image or list issues because of the background or its colour. ' +
+      'Judge only the subject. A background that is NOT one solid uniform colour (gradient, scenery, cast shadow) or sprite-coloured areas on the subject are real issues. ' +
+      'In fixedPrompt, never mention the background.'
+    : '';
   try {
     if (references?.length) {
       // 1. describe the generated image blind (without the reference), so the comparison isn't steered towards "same"
@@ -165,14 +173,15 @@ export async function checkImage(
           (checklist ? `\nDescription of the REFERENCE character:\n${checklist}\n` : '') +
           `\nIndependent description of the GENERATED image (written without seeing the reference):\n${blind}\n` +
           `\nJudge each of these features: ${REF_FEATURES.map(([k, d]) => `${k} (${d})`).join('; ')}.\n` +
-          'Is it unmistakably the same character in the same art style, in the requested scene? Reply with the JSON only.',
+          'Is it unmistakably the same character in the same art style, in the requested scene? Reply with the JSON only.' +
+          spriteNote,
       });
       res = parseRefCheck(await askVisionParts(project, content, { signal, system: REF_CHECK_SYSTEM }), refTolerance(project.defaults));
     } else {
       const text = await askVision(
         project,
         img.id,
-        `User request: ${request || prompt}\nPrompt sent to the generator: ${prompt}\n\nDoes the image deliver the request? Reply with the JSON only.`,
+        `User request: ${request || prompt}\nPrompt sent to the generator: ${prompt}\n\nDoes the image deliver the request? Reply with the JSON only.${spriteNote}`,
         undefined,
         { maxEdge: 1024, signal, system: CHECK_SYSTEM },
       );

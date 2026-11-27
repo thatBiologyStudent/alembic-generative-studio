@@ -116,6 +116,14 @@ export function systemPrompt(
   } else {
     lines.push('', 'No image model is selected yet. If the user asks for images, tell them to pick an image model with the picker under the chat box.');
   }
+  if (d.sprite?.enabled)
+    lines.push(
+      '',
+      `SPRITE MODE is on: every new image is generated on a solid ${d.sprite.color} background that is then removed to make a transparent sprite. ` +
+        'The image tools add the background instruction themselves. Never write anything about the background in your prompts: no "white background", "simple background", "transparent background", ' +
+        'no backdrop colour, no scenery or setting. Describe only the subject (and its pose, lighting and style). Avoid colours close to the sprite colour on the subject. ' +
+        'If the user asks for a background or scene, tell them in one sentence that sprite mode is on and they can switch it off in the generation settings.',
+    );
   const pr = slots.presets;
   if (pr?.characters.length) {
     lines.push(
