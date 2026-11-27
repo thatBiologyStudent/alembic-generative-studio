@@ -78,6 +78,7 @@ export function systemPrompt(
       `Current project settings: ${describeSize(d.width, d.height)}, ${d.count} image(s) per request${caps.steps ? `, ${d.steps} steps, CFG ${d.cfg}` : ''}${d.negative && caps.negative ? `, default negative "${d.negative}"` : ''}.`,
       'Sizes: when the user asks for an aspect ratio, orientation or resolution for an image ("3:4", "portrait", "widescreen", "in 2k"), pass aspect_ratio / resolution to generate_image for that request. ' +
         'When they want it to stick ("from now on", "always", "make that the default"), call update_settings. Otherwise keep the project settings. ' +
+        (d.customSize ? `The user set this exact size by hand: keep it and do not pass aspect_ratio / resolution unless they ask for another size. ` : '') +
         'The tool result states the size actually produced (some backends only support certain sizes) — mention it if it differs from what was asked.',
     );
     if (caps.steps && slots.rec) {

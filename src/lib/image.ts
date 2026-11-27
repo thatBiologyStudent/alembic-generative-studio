@@ -65,6 +65,22 @@ export async function resizeBlob(blob: Blob, max: number, type = 'image/jpeg', q
   return canvasToBlob(c, type, quality);
 }
 
+/** Scales an image to cover exactly width × height (centre crop when the aspect differs), as PNG. */
+export async function coverResize(blob: Blob, width: number, height: number): Promise<Blob> {
+  const bmp = await createImageBitmap(blob);
+  const s = Math.max(width / bmp.width, height / bmp.height);
+  const w = bmp.width * s, h = bmp.height * s;
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bmp, (width - w) / 2, (height - h) / 2, w, h);
+  bmp.close();
+  return canvasToBlob(c, 'image/png');
+}
+
 export const makeThumb = (blob: Blob) => resizeBlob(blob, 384, 'image/webp', 0.8);
 
 /** Re-encode as PNG, optionally at an exact size. */

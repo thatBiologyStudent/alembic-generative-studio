@@ -1,4 +1,4 @@
-import { db, samplingFor, SLOT_FIELDS, type Connection, type ImageRecord, type ImageSlot, type Project } from '../db/schema';
+import { db, samplingFor, SLOT_FIELDS, type Connection, type GenDefaults, type ImageRecord, type ImageSlot, type Project } from '../db/schema';
 import { saveImage } from '../db/repo';
 import { getImageBackend } from '../providers/image';
 import { fetchModelList } from '../providers/models';
@@ -8,6 +8,8 @@ import { useUI } from '../store/ui';
 import { afterGenerate, spriteNegative, spriteOf, withSpriteClause } from './sprite';
 import { activePresets, withCharacters, withStyle } from '../lib/styles';
 import { POSE_IMAGE_NOTE, poseFor, withPoseText } from './pose';
+import { sizeFor, SMALL_EDGE } from '../lib/size';
+import { coverResize, imageSize } from '../lib/image';
 
 export interface SlotTarget {
   conn: Connection;
@@ -201,6 +203,9 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
         ...stripUndefined(op.params),
         prompt: op.params.prompt,
       };
+      // icon sizes: generate at ~1k and scale down (small sizes come out poorly or are not supported)
+      const target = { width: params.width, height: params.height };
+      Object.assign(params, renderSize(target.width, target.height, d));
       if (params.negative && d.negative && op.params.negative && !op.params.negative.includes(d.negative)) {
         params.negative = `${op.params.negative}, ${d.negative}`;
       }
@@ -235,8 +240,9 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
         poseVia = `text (ControlNet failed: ${errText(e)})`;
       }
       for (const im of imgs) {
+        const fit = await exactSize(im.blob, target.width, target.height, d);
         saved.push(
-          await saveImage(project.id, im.blob, {
+          await saveImage(project.id, fit.blob, {
             op: 'txt2img',
             prompt: params.prompt,
             negative: params.negative,
@@ -252,6 +258,7 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
               ...(sprite.enabled ? { sprite: sprite.color } : {}),
               ...(op.references?.length ? { references: op.references } : {}),
               ...(pose ? { pose: pose.imageId, poseVia } : {}),
+              ...(fit.scaledFrom ? { scaledFrom: fit.scaledFrom } : {}),
             },
           }),
         );
@@ -261,7 +268,8 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
     } else if (op.kind === 'reference') {
       const width = op.params.width ?? d.width;
       const height = op.params.height ?? d.height;
-      const pose = op.pose ? await poseFor(op.pose, width, height, { fit: d.poseFit !== false }) : undefined;
+      const render = renderSize(width, height, d);
+      const pose = op.pose ? await poseFor(op.pose, render.width, render.height, { fit: d.poseFit !== false }) : undefined;
       const refs = op.references.slice(0, Math.max(0, refTarget!.max - (pose ? 1 : 0)));
       const inputs = [...refs.map((r) => r.blob), ...(pose ? [pose.image] : [])];
       if (!inputs.length) throw new Error('Nothing to send as a reference image.');
@@ -282,8 +290,8 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
           ...(await backend.img2img(
             {
             prompt,
-            width,
-            height,
+            width: render.width,
+            height: render.height,
             count: 1,
             model,
             seed: op.params.seed,
@@ -300,8 +308,9 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
         );
       }
       for (const im of imgs.slice(0, count)) {
+        const fit = await exactSize(im.blob, width, height, d);
         saved.push(
-          await saveImage(project.id, im.blob, {
+          await saveImage(project.id, fit.blob, {
             op: 'txt2img',
             prompt,
             seed: im.seed,
@@ -313,6 +322,7 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
               ...(refs.length ? { references: refs.map((r) => r.id), refInput: true } : {}),
               ...(pose ? { pose: pose.imageId, poseVia: 'reference image' } : {}),
               ...(sprite.enabled ? { sprite: sprite.color } : {}),
+              ...(fit.scaledFrom ? { scaledFrom: fit.scaledFrom } : {}),
             },
           }),
         );
@@ -386,3 +396,20 @@ function stripUndefined<T extends object>(o: T): Partial<T> {
 }
 
 const errText = (e: unknown) => ((e as Error)?.message ?? String(e)).slice(0, 120);
+
+/**
+ * Small (icon) sizes and sizes typed in by hand: many providers return their nearest supported size instead
+ * (Nano Banana, GPT Image… never go below ~1024), so the result is scaled and centre-cropped to the size that was asked for.
+ */
+async function exactSize(blob: Blob, width: number, height: number, d: GenDefaults): Promise<{ blob: Blob; scaledFrom?: string }> {
+  if (!width || !height || !(d.customSize || Math.sqrt(width * height) < SMALL_EDGE)) return { blob };
+  const got = await imageSize(blob).catch(() => undefined);
+  if (!got || (Math.abs(got.width - width) <= 2 && Math.abs(got.height - height) <= 2)) return { blob };
+  return { blob: await coverResize(blob, width, height), scaledFrom: `${got.width}×${got.height}` };
+}
+
+/** The size actually requested from the provider: the 0.25k / 0.5k tiers render at ~1k with the same ratio (exact sizes typed by hand are sent as they are). */
+function renderSize(width: number, height: number, d: GenDefaults): { width: number; height: number } {
+  if (d.customSize || !width || !height || Math.sqrt(width * height) >= SMALL_EDGE) return { width, height };
+  return sizeFor(width / height, 1024);
+}

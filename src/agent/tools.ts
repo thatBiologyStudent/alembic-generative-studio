@@ -11,7 +11,7 @@ const sizeProps = {
   resolution: {
     type: 'string',
     enum: [...RESOLUTIONS],
-    description: 'Resolution tier: "1k" ≈ 1 megapixel (1024×1024 equivalent), "2k" ≈ 4 MP, "4k" ≈ 16 MP. Omit to keep the project setting.',
+    description: 'Resolution tier: "0.25k" ≈ 256×256 (icons), "0.5k" ≈ 512×512, "1k" ≈ 1 megapixel (1024×1024 equivalent), "2k" ≈ 4 MP, "4k" ≈ 16 MP. Omit to keep the project setting.',
   },
 };
 
