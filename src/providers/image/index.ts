@@ -13,8 +13,28 @@ import { OpenArtImageBackend } from './openart';
 import { GeminiImageBackend } from './gemini';
 import { OpenAIImagesBackend } from './openaiImages';
 import type { ImageBackend } from './types';
+import { concurrencyOf, withSlot } from '../../lib/limit';
 
 export function getImageBackend(c: Connection): ImageBackend {
+  const b = createBackend(c);
+  return c.maxConcurrent ? limited(b, c) : b;
+}
+
+/** Keeps the image requests to one provider (connection) within its "max concurrent requests", across projects. */
+function limited(b: ImageBackend, c: Connection): ImageBackend {
+  const max = concurrencyOf(c);
+  const key = `img:${c.id}`;
+  const wrap = <A extends unknown[], R>(fn: (...a: A) => Promise<R>, signalOf: (...a: A) => AbortSignal | undefined) =>
+    (...a: A) => withSlot(key, max, () => fn.apply(b, a), signalOf(...a));
+  return Object.assign(Object.create(b), {
+    capabilities: b.capabilities,
+    txt2img: wrap(b.txt2img, (_p, ctx) => ctx?.signal),
+    img2img: wrap(b.img2img, (_p, ctx) => ctx?.signal),
+    ...(b.upscale ? { upscale: wrap(b.upscale, (_i, _s, ctx) => ctx?.signal) } : {}),
+  }) as ImageBackend;
+}
+
+function createBackend(c: Connection): ImageBackend {
   // providers like ArliAI use a different key for image requests
   const conn: Connection = c.imageApiKey ? { ...c, apiKey: c.imageApiKey } : c;
   switch (conn.imageApi) {

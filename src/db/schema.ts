@@ -173,6 +173,8 @@ export interface Connection {
   imageModels?: string[];
   /** backend-specific options (comfy workflows, upscaler, edit style, …) */
   extra?: Record<string, any>;
+  /** image requests this provider may run at the same time (batch items in parallel); unset = one at a time, no limiter */
+  maxConcurrent?: number;
   createdAt: number;
 }
 

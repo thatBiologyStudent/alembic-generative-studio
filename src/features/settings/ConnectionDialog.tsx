@@ -226,6 +226,31 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
           </label>
         )}
 
+        {c.imageApi && c.imageApi !== 'demo' && (
+          <label className="flex items-start gap-3 rounded-lg border border-line p-3 text-sm">
+            <input
+              type="number"
+              min={1}
+              max={16}
+              className="input w-16 py-1"
+              value={c.maxConcurrent ?? ''}
+              placeholder="1"
+              onChange={(e) => {
+                const v = Math.floor(Number(e.target.value));
+                set({ maxConcurrent: e.target.value === '' || !(v > 1) ? undefined : Math.min(16, v) });
+              }}
+            />
+            <span>
+              Max concurrent image requests
+              <span className="block text-xs text-muted">
+                How many image requests this provider may run at once. Above 1, batch items and per-image requests run in parallel, and all projects together stay within
+                this number. Only raise it if the provider allows it: many plans cap parallel requests (ArliAI by plan, Sogni by subscription), and browser-extension
+                providers (Bing, Flow) work one at a time. Empty = one at a time.
+              </span>
+            </span>
+          </label>
+        )}
+
         {c.imageApi === 'sogni' && (
           <label className="flex items-start gap-2 rounded-lg border border-line p-3 text-sm">
             <input type="checkbox" className="mt-0.5" checked={c.extra?.safeContentFilter !== false} onChange={(e) => setExtra({ safeContentFilter: e.target.checked })} />

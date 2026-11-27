@@ -7,6 +7,7 @@ import type { LLMMessage, LLMPart } from '../providers/llm/types';
 import { getImageBackend } from '../providers/image';
 import { useUI } from '../store/ui';
 import { resolveLLMConn, resolveSlot, runImageOp } from './generate';
+import { concurrencyOf, pool } from '../lib/limit';
 import { imageDataUrl } from './vision';
 import { editChecked, generateChecked } from './verify';
 import { generateFromReference } from './reference';
@@ -194,27 +195,37 @@ async function execTool(
       if (!items.length) return { ...base, content: 'generate_batch needs a non-empty items list.', isError: true };
       const lines: string[] = [];
       const ids: string[] = [];
-      for (let i = 0; i < items.length; i++) {
-        if (signal.aborted) {
-          lines.push(`${i + 1}. cancelled`);
-          break;
-        }
-        const it = typeof items[i] === 'string' ? { prompt: items[i] } : items[i];
+      // items run in parallel up to the image provider's "max concurrent requests" (one at a time by default)
+      const parallel = concurrencyOf((await resolveSlot(project, 'generate'))?.conn);
+      const done: string[] = new Array(items.length);
+      let finished = 0;
+      await pool(items, parallel, async (raw, i) => {
+        const it = typeof raw === 'string' ? { prompt: raw } : raw;
         const label = it.label || it.name || `item ${i + 1}`;
+        if (signal.aborted) {
+          done[i] = `${i + 1}. ${label}: cancelled`;
+          return;
+        }
         try {
           const { params } = genParams(project, { aspect_ratio: args.aspect_ratio, resolution: args.resolution, negative_prompt: args.negative_prompt, count: args.count_per_item, ...it }, turn);
           const refs = await ownImages(project, it.reference_image_ids ?? args.reference_image_ids);
           const req = `${request}\n(Batch item: ${label})`;
           const r = refs.length ? await generateFromReference(project, refs, params.prompt, signal, params, req, turn.pose) : await generateChecked(project, params, req, signal, { pose: turn.pose });
           ids.push(...r.images.map((x) => x.id));
-          lines.push(`${i + 1}. ${label}: ${imgList(r.images)}${r.summary}`);
+          done[i] = `${i + 1}. ${label}: ${imgList(r.images)}${r.summary}`;
           if (r.limitReached) turn.limitHit = true;
         } catch (e) {
-          if ((e as Error).name === 'AbortError') throw e;
-          lines.push(`${i + 1}. ${label}: FAILED — ${errMsg(e)}`);
+          if ((e as Error).name === 'AbortError') {
+            done[i] = `${i + 1}. ${label}: cancelled`;
+            return;
+          }
+          done[i] = `${i + 1}. ${label}: FAILED — ${errMsg(e)}`;
         }
-        onPartial?.({ name, content: `Batch progress ${i + 1}/${items.length}:\n${lines.join('\n')}`, imageIds: [...ids] });
-      }
+        finished++;
+        onPartial?.({ name, content: `Batch progress ${finished}/${items.length}:\n${done.filter(Boolean).join('\n')}`, imageIds: [...ids] });
+      });
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      lines.push(...done.filter(Boolean));
       return {
         ...base,
         content: `Batch finished (${items.length} item(s)):\n${lines.join('\n')}${turn.limitHit ? '\nSome items used up their retries: do not generate again for this request; tell the user what is still off.' : ''}`,
@@ -420,9 +431,10 @@ export async function runDirect(projectId: string, text: string, imageIds: strin
     });
     const refs = references ? imageIds.slice(0, 4) : [];
     const src = !refs.length && imageIds.length ? await db.images.get(imageIds[0]) : undefined;
-    for (let i = 0; i < prompts.length; i++) {
-      if (ctrl.signal.aborted) break;
-      const p = prompts[i];
+    // batch lines run in parallel up to the image provider's "max concurrent requests" (one at a time by default)
+    const parallel = concurrencyOf((await resolveSlot(project, 'generate'))?.conn);
+    await pool(prompts, parallel, async (p, i) => {
+      if (ctrl.signal.aborted) return;
       try {
         const r = refs.length
           ? await generateFromReference(project, refs, p, ctrl.signal, undefined, undefined, pose)
@@ -438,10 +450,11 @@ export async function runDirect(projectId: string, text: string, imageIds: strin
           ],
         });
       } catch (e) {
-        if ((e as Error).name === 'AbortError') throw e;
+        if ((e as Error).name === 'AbortError') return;
         await addMessage({ projectId, role: 'assistant', parts: [], error: `${batch ? `${i + 1}/${prompts.length} · ${p}: ` : ''}${errMsg(e)}` });
       }
-    }
+    });
+    if (ctrl.signal.aborted) throw new DOMException('Aborted', 'AbortError');
   } catch (e) {
     await addMessage({ projectId, role: 'assistant', parts: [], error: (e as Error).name === 'AbortError' ? 'Stopped.' : errMsg(e) });
   } finally {

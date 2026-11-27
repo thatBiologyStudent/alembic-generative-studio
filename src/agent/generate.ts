@@ -9,6 +9,7 @@ import { afterGenerate, spriteNegative, spriteOf, withSpriteClause } from './spr
 import { activePresets, withCharacters, withStyle } from '../lib/styles';
 import { POSE_IMAGE_NOTE, poseFor, withPoseText } from './pose';
 import { sizeFor, SMALL_EDGE } from '../lib/size';
+import { concurrencyOf, pool } from '../lib/limit';
 import { coverResize, imageSize } from '../lib/image';
 
 export interface SlotTarget {
@@ -285,9 +286,12 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
       if (pose) prompt = `${withPoseText(prompt, pose.description, false)}\n\n${refs.length ? POSE_IMAGE_NOTE : POSE_IMAGE_NOTE.replace('The last reference image', 'The reference image')}`;
       // one request per image: reference models mostly return one image, and some ignore n
       const imgs = [];
-      for (let i = 0; i < count; i++) {
-        imgs.push(
-          ...(await backend.img2img(
+      // one request per image, in parallel up to the provider's concurrency setting
+      const runs = await pool(
+        Array.from({ length: count }, (_, i) => i),
+        concurrencyOf(conn),
+        (i) =>
+          backend.img2img(
             {
             prompt,
             width: render.width,
@@ -304,9 +308,9 @@ export async function runImageOp(project: Project, op: Op, signal?: AbortSignal,
             denoise: 0.9,
           },
             { ...ctx, onProgress: (f, pv) => ctx.onProgress((i + f) / count, pv) },
-          )),
-        );
-      }
+          ),
+      );
+      imgs.push(...runs.flat());
       for (const im of imgs.slice(0, count)) {
         const fit = await exactSize(im.blob, width, height, d);
         saved.push(
