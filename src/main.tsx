@@ -16,13 +16,17 @@ import { BASE } from './lib/base';
 import { cleanupPendingSignIns } from './lib/oauth';
 import { DramatisBridge } from './components/DramatisBridge';
 import { initDramatisBridge } from './lib/dramatis';
+import { ErrorBoundary } from './components/CrashScreen';
 
+// the app started: the startup watchdog in index.html can stand down
+(window as any).__alembicBooted = true;
 void ensureDemoConnections();
 cleanupPendingSignIns();
 initDramatisBridge();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
+    <ErrorBoundary>
     <BrowserRouter basename={BASE.replace(/\/+$/, '') || undefined}>
       <Routes>
         <Route path="/" element={<ProjectList />} />
@@ -38,5 +42,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <SiteAnalytics />
       <DramatisBridge />
     </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>,
 );

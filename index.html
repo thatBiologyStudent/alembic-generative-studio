@@ -11,6 +11,35 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Startup watchdog: if the app has not started after 8 s (an old cached copy whose code files are gone,
+      // a script error before React mounts), show what happened instead of a black page.
+      (function () {
+        var errors = [];
+        window.addEventListener('error', function (e) { errors.push((e.message || 'Script failed to load') + (e.filename ? ' (' + e.filename.split('/').pop() + ')' : '')); }, true);
+        window.addEventListener('unhandledrejection', function (e) { errors.push(String((e.reason && e.reason.message) || e.reason)); });
+        setTimeout(function () {
+          var root = document.getElementById('root');
+          if (window.__alembicBooted && root && root.childElementCount) return;
+          var box = document.createElement('div');
+          box.setAttribute('style', 'font:14px system-ui,sans-serif;color:#e4e4e7;background:#0c0c0f;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px');
+          box.innerHTML =
+            '<div style="max-width:520px;border:1px solid #27272a;border-radius:12px;padding:20px;background:#141418">' +
+            '<h1 style="font-size:16px;margin:0 0 8px">Alembic did not start</h1>' +
+            '<p style="color:#a1a1aa;margin:0 0 10px">Your projects, images and keys are safe in this browser. This is usually an old cached copy of the app: clear it and reload.</p>' +
+            '<pre id="alembic-boot-err" style="white-space:pre-wrap;color:#fca5a5;font-size:11px;background:#0c0c0f;padding:8px;border-radius:6px;max-height:160px;overflow:auto"></pre>' +
+            '<button id="alembic-clear" style="background:#7c3aed;color:#fff;border:0;border-radius:8px;padding:6px 12px;margin-right:8px;cursor:pointer">Clear app cache and reload</button>' +
+            '<button onclick="location.reload()" style="background:#27272a;color:#e4e4e7;border:0;border-radius:8px;padding:6px 12px;cursor:pointer">Reload</button></div>';
+          document.body.appendChild(box);
+          document.getElementById('alembic-boot-err').textContent = errors.length ? errors.join(' | ') : 'No error was reported. The app code did not finish loading.';
+          document.getElementById('alembic-clear').onclick = function () {
+            var done = function () { location.reload(); };
+            var sw = navigator.serviceWorker && navigator.serviceWorker.getRegistrations ? navigator.serviceWorker.getRegistrations().then(function (r) { return Promise.all(r.map(function (x) { return x.unregister(); })); }) : Promise.resolve();
+            sw.then(function () { return window.caches ? caches.keys().then(function (k) { return Promise.all(k.map(function (x) { return caches.delete(x); })); }) : null; }).then(done, done);
+          };
+        }, 8000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
