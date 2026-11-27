@@ -150,7 +150,7 @@ export interface ImageRecord {
 /** Wire protocol used for chat. */
 export type ChatApi = 'openai' | 'anthropic' | 'demo';
 /** Wire protocol used for images. */
-export type ImageApi = 'openai-images' | 'chat-image' | 'gemini' | 'a1111' | 'sdnext' | 'comfyui' | 'demo' | 'flow-sidecar' | 'bing-sidecar' | 'cloudflare' | 'civitai' | 'nvidia' | 'openart';
+export type ImageApi = 'openai-images' | 'chat-image' | 'gemini' | 'a1111' | 'sdnext' | 'comfyui' | 'demo' | 'flow-sidecar' | 'bing-sidecar' | 'cloudflare' | 'civitai' | 'nvidia' | 'openart' | 'sogni';
 
 /** A provider account / server. One provider can serve chat, images, or both with the same key. */
 export interface Connection {

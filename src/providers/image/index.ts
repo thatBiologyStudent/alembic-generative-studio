@@ -7,6 +7,7 @@ import { FlowSidecarBackend } from './flowSidecar';
 import { BingSidecarBackend } from './bingSidecar';
 import { CloudflareImageBackend } from './cloudflare';
 import { CivitaiImageBackend } from './civitai';
+import { SogniImageBackend } from './sogni';
 import { NvidiaImageBackend } from './nvidia';
 import { OpenArtImageBackend } from './openart';
 import { GeminiImageBackend } from './gemini';
@@ -39,6 +40,8 @@ export function getImageBackend(c: Connection): ImageBackend {
       return new CloudflareImageBackend(conn);
     case 'civitai':
       return new CivitaiImageBackend(conn);
+    case 'sogni':
+      return new SogniImageBackend(conn);
     case 'nvidia':
       return new NvidiaImageBackend(conn);
     case 'openart':
