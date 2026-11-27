@@ -214,19 +214,61 @@ export class SogniImageBackend implements ImageBackend {
       void apiFetch(this.u(`/v1/creative-agent/workflows/${encodeURIComponent(id)}/cancel`), { method: 'POST', headers: this.headers() }).catch(() => undefined);
       throw e;
     }
-    const arts = [...(wf.steps ?? []).flatMap((s) => s.artifacts ?? []), ...(wf.artifacts ?? [])].filter(
-      (a) => a.url && !/video|audio|model/i.test(`${a.mediaType ?? ''} ${a.type ?? ''} ${a.mimeType ?? ''}`),
-    );
-    const urls = [...new Set(arts.map((a) => a.url!))];
+    // result links live in "artifacts" (top level and/or per step); field names vary, so collect every link in them
+    let urls = artifactUrls(wf, media);
     if (!urls.length) {
+      // fall back to the event log: artifact_created / step_completed events carry the same links
+      const ev = await apiJson<any>(this.u(`/v1/creative-agent/workflows/${encodeURIComponent(id)}/events`), { headers: this.headers(), signal }).catch(() => undefined);
+      urls = artifactUrls(ev?.data ?? ev, media, true);
+    }
+    if (!urls.length) {
+      console.warn('Sogni workflow without image links:', wf);
       const why = [wf.error, ...(wf.steps ?? []).map((s) => s.error)].filter(Boolean).map((e) => (typeof e === 'string' ? e : (e as any)?.message ?? JSON.stringify(e)));
-      throw new Error(`Sogni generation ${wf.status}${why.length ? `: ${why.join('; ').slice(0, 300)}` : ''}.`);
+      throw new Error(
+        `Sogni finished the workflow (${wf.status}) but Alembic found no image link in it${why.length ? `: ${why.join('; ').slice(0, 300)}` : ''}. ` +
+          `Workflow ${id}; fields: ${describeShape(wf)}. Please report this.`,
+      );
     }
     const out: GenImage[] = [];
     for (const u of urls) out.push({ blob: await (await apiFetch(via(this.conn, u), { signal })).blob() });
     ctx?.onProgress?.(1);
     return out;
   }
+}
+
+const NOT_IMAGE = /\.(mp4|webm|mov|mp3|wav|flac|m4a|glb|gltf|json|txt)(\?|$)/i;
+
+/**
+ * Every http(s) link found inside "artifacts" arrays (any depth, any field name: url, uri, downloadUrl, urls[]…),
+ * minus the uploaded inputs and obvious non-images. anywhere=true also reads links outside artifacts (event logs).
+ */
+function artifactUrls(root: unknown, inputs: { url: string }[], anywhere = false): string[] {
+  const skip = new Set(inputs.map((m) => m.url));
+  const found: string[] = [];
+  const walk = (v: unknown, inArtifacts: boolean, depth: number) => {
+    if (depth > 8 || v == null) return;
+    if (typeof v === 'string') {
+      if ((inArtifacts || anywhere) && /^https?:\/\//i.test(v) && !skip.has(v) && !NOT_IMAGE.test(v)) found.push(v);
+      return;
+    }
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, inArtifacts, depth + 1));
+    if (typeof v !== 'object') return;
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      // the request's own inputs and media references are not results
+      if (/^(input|arguments|media_?references|mediaReferences|plan)$/i.test(k)) continue;
+      const media = `${(v as any).mediaType ?? ''} ${(v as any).type ?? ''} ${(v as any).mimeType ?? ''}`;
+      if (/video|audio/i.test(media) && !/image/i.test(media)) return;
+      walk(x, inArtifacts || /artifact|result|output|image/i.test(k), depth + 1);
+    }
+  };
+  walk(root, false, 0);
+  return [...new Set(found)];
+}
+
+/** Top-level keys and the keys of the first artifact, for error reports. */
+function describeShape(wf: any): string {
+  const first = wf?.artifacts?.[0] ?? wf?.steps?.find((s: any) => s?.artifacts?.length)?.artifacts?.[0];
+  return `${Object.keys(wf ?? {}).join(', ')}${first ? `; artifact: ${Object.keys(first).join(', ')}` : '; no artifacts'}`;
 }
 
 function waiting(reason?: string): string {
