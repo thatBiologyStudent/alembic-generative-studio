@@ -226,6 +226,19 @@ export function ConnectionDialog({ conn, onClose }: { conn?: Connection; onClose
           </label>
         )}
 
+        {c.imageApi === 'sogni' && (
+          <label className="flex items-start gap-2 rounded-lg border border-line p-3 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={c.extra?.safeContentFilter !== false} onChange={(e) => setExtra({ safeContentFilter: e.target.checked })} />
+            <span>
+              Sensitive Content Filter
+              <span className="block text-xs text-muted">
+                Sogni filters API requests unless each one turns the filter off: the switch on the Sogni website does not carry over to the API. Untick to allow mature
+                content on models that permit it. Sogni only accepts this from eligible accounts (active subscription, Premium Spark, or paying with SOGNI); you must be 18+.
+              </span>
+            </span>
+          </label>
+        )}
+
         {!noNet && (
           <label className={`flex items-start gap-2 rounded-lg border border-line p-3 text-sm ${proxyOk ? '' : 'opacity-60'}`}>
             <input type="checkbox" className="mt-0.5" checked={!!c.useProxy} disabled={!proxyOk && !c.useProxy} onChange={(e) => set({ useProxy: e.target.checked })} />

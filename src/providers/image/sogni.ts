@@ -187,6 +187,8 @@ export class SogniImageBackend implements ImageBackend {
       input: { title: `Alembic ${tool === 'edit_image' ? 'edit' : 'image'}`, steps: [{ id: 'img', toolName: tool, arguments: args }] },
       token_type: 'auto',
       app_source: 'alembic-generative-studio',
+      // per request on the API (the website's switch does not apply here); on unless the connection turns it off
+      safe_content_filter: this.conn.extra?.safeContentFilter !== false,
       ...(media.length ? { media_references: media } : {}),
     };
     const start = await apiJson<{ data: { workflow: Workflow; warnings?: string[] } }>(this.u('/v1/creative-agent/workflows'), {
