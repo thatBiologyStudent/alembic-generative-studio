@@ -205,7 +205,22 @@ export class SogniImageBackend implements ImageBackend {
     let tick = 0;
     try {
       while (!TERMINAL.has(wf.status ?? '')) {
-        if (wf.status === 'waiting_for_user') throw new Error(`Sogni paused the generation (${waiting(wf.waitingReason)}).`);
+        if (wf.status === 'waiting_for_user') {
+          // say what Sogni is waiting for in its own words (workflow fields and the event log), plus what was asked
+          const ev = await apiJson<any>(this.u(`/v1/creative-agent/workflows/${encodeURIComponent(id)}/events`), { headers: this.headers(), signal }).catch(() => undefined);
+          console.warn('Sogni workflow waiting for the user:', wf, ev);
+          const said = pauseDetails([wf, ev?.data ?? ev]);
+          const model = modelOf(String(args.model ?? ''));
+          const filterOff = this.conn.extra?.safeContentFilter === false;
+          throw new Error(
+            `Sogni paused the generation: ${waiting(wf.waitingReason)}` +
+              `${said.length ? `. Sogni says: ${said.join(' · ')}` : ''}. ` +
+              `Model: ${model.name}${model.premium ? ' (external vendor model, Premium Spark)' : ''}; Sensitive Content Filter ${filterOff ? 'off' : 'on'}.` +
+              (wf.waitingReason === 'permission_required'
+                ? ` Open sogni.ai with the same account and confirm it there${model.premium ? ' (run this model once and accept its terms)' : ''}${filterOff ? ', or tick the Sensitive Content Filter on this provider: turning it off needs a one-time mature-content confirmation' : ''}, then try again.`
+                : ''),
+          );
+        }
         if (Date.now() - started > 10 * 60_000) throw new Error('Sogni did not finish within 10 minutes. Try again, or pick a model with more workers online.');
         ctx?.onProgress?.(Math.min(0.9, 0.08 + tick++ * 0.04));
         await sleep(2000);
@@ -314,6 +329,30 @@ function describeShape(wf: any): string {
   return `${Object.keys(wf ?? {}).join(', ')}${first ? `; artifact: ${Object.keys(first).join(', ')}` : '; no artifacts'}`;
 }
 
+/**
+ * Texts that explain a pause: message / reason / detail / description fields and links anywhere in the workflow
+ * or its events, except the request's own inputs.
+ */
+function pauseDetails(roots: unknown[]): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown, key: string, depth: number) => {
+    if (depth > 7 || v == null || out.length >= 4) return;
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (t && t.length > 3 && (/(reason|message|detail|description|permission|agreement|consent|terms|action|url|link)$/i.test(key)) && !out.includes(t)) out.push(t.slice(0, 240));
+      return;
+    }
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, key, depth + 1));
+    if (typeof v !== 'object') return;
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (/^(input|arguments|media_?references|mediaReferences|plan|billingPreviews|dispatchLedger|agentTelemetry|llmAttribution|waitingReason)$/i.test(k)) continue;
+      walk(x, k, depth + 1);
+    }
+  };
+  for (const r of roots) walk(r, '', 0);
+  return out;
+}
+
 function waiting(reason?: string): string {
   switch (reason) {
     case 'insufficient_credit':
@@ -324,7 +363,7 @@ function waiting(reason?: string): string {
     case 'safety_review_required':
       return 'the content filter flagged it';
     case 'permission_required':
-      return 'this model needs a one-time agreement in the Sogni app';
+      return 'it needs your one-time permission in Sogni';
     default:
       return reason ?? 'waiting for input';
   }
